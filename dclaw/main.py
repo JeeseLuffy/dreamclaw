@@ -1,13 +1,13 @@
-import sys
 import uuid
 import time
 import argparse
 from dclaw.graph import build_graph
+from dclaw.config import AgentConfig
 
 def run_agent(mode="interactive", thread_id=None):
     print(f"Starting DClaw Agent in {mode} mode...")
-    
-    app = build_graph()
+    config_obj = AgentConfig.from_env()
+    app = build_graph(config_obj)
     
     if not thread_id:
         thread_id = str(uuid.uuid4())
@@ -21,9 +21,14 @@ def run_agent(mode="interactive", thread_id=None):
             "Curiosity": 0.5, "Fatigue": 0.0, "Joy": 0.5, 
             "Anxiety": 0.2, "Excitement": 0.3, "Frustration": 0.1
         },
-        "daily_token_budget": 1000,
+        "daily_token_budget": config_obj.max_tokens_per_day,
+        "draft_content": None,
+        "draft_candidates": [],
+        "quality_score": 0.0,
+        "critic_feedback": None,
         "post_history": [],
-        "memory_context": []
+        "memory_context": [],
+        "next_step": None,
     }
 
     try:
@@ -65,7 +70,7 @@ def run_agent(mode="interactive", thread_id=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run DClaw Agent")
-    parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon"], help="Run mode")
+    parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon", "resume"], help="Run mode")
     parser.add_argument("--thread_id", type=str, help="Resume specific thread ID")
     
     args = parser.parse_args()

@@ -16,7 +16,9 @@ class AgentState(TypedDict):
     
     # Content Generation
     draft_content: Optional[str]  # Current content being drafted
+    draft_candidates: List[str]  # Candidate drafts for best-of-n selection
     quality_score: float  # Critic score (0.0 - 1.0)
+    critic_feedback: Optional[str]  # Reason from critic
     
     # Platform & Memory
     post_history: List[Dict[str, Any]]  # List of published posts

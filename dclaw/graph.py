@@ -1,197 +1,222 @@
 from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
-from typing import TypedDict, Annotated, List
+from typing import List
 import sqlite3
-import os
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from .state import AgentState
 from .memory import AgentMemory
 from .emotion import EmotionState
 from .critic import ContentCritic, DailyConstraint
 from .perception import PerceptionLayer
+from .config import AgentConfig
 
-# Initialize Systems
-memory_system = AgentMemory()
-critic_system = ContentCritic()
-daily_constraint = DailyConstraint(max_posts=5) # increased for testing
-perception_layer = PerceptionLayer()
-llm = ChatOpenAI(model="gpt-4o-mini")
 
-def perception_node(state: AgentState):
-    """
-    Simulates browsing social media and updating state.
-    """
-    print("--- 1. Perception/Browsing ---")
-    
-    # Browse Content
-    browsed_content = perception_layer.browse(platform="reddit", limit=3)
-    new_memory = browsed_content[0]["title"] + ": " + browsed_content[0]["content"] if browsed_content else "Nothing interesting found."
-    
-    print(f"Browsed: {new_memory[:50]}...")
-    
-    # Store in memory
-    memory_system.add_interaction(role="user", content=new_memory, metadata={"source": "reddit"})
-    
-    # Analyze Engagement on previous posts (if any)
-    post_history = state.get("post_history", [])
-    engagement = perception_layer.analyze_engagement(post_history)
-    
-    # Emotion Update
-    current_vector = state.get("emotion_vector")
-    emotion_engine = EmotionState(current_vector)
-    
-    # Simulate an event based on browsing/engagement
-    if engagement.get("likes", 0) > 20:
-        new_vector = emotion_engine.update("get_like")
-    else:
-        new_vector = emotion_engine.update("browse_interesting")
-    
-    return {
-        "messages": [f"Browsed: {new_memory}"],
-        "emotion_vector": new_vector,
-        "memory_context": [new_memory]
-    }
+class AgentRuntime:
+    def __init__(self, config: AgentConfig):
+        self.config = config
+        self.memory_system = AgentMemory(
+            use_real_mem0=config.use_real_mem0,
+            vector_store_provider=config.vector_store_provider,
+        )
+        self.perception_layer = PerceptionLayer()
+        self.llm = None
+        if config.use_llm_generation:
+            try:
+                self.llm = ChatOpenAI(model=config.model_name)
+            except Exception as exc:
+                print(f"LLM init failed ({exc}); using rule-only mode.")
+                self.llm = None
 
-def draft_node(state: AgentState):
-    """
-    Generates a draft post based on current state and emotions.
-    """
-    print("--- 2. Drafting Content ---")
-    
-    # Emotion Parameters
-    emotion_engine = EmotionState(state["emotion_vector"])
-    params = emotion_engine.get_generation_params()
-    print(f"Generation Params: {params}")
-    
-    # Retrieve relevant context from memory
-    query = "AI agents social media"
-    memory_context = memory_system.search_memory(query)
-    context_str = "\n".join(memory_context) if memory_context else "general AI trends"
-    
-    # LLM Generation
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are DClaw, a social AI agent. Your persona is: {persona}. \n"
-                   "Current state of mind: {tone}. Creativity level (temperature): {temperature}. \n"
-                   "Draft a short social media post (under 280 chars) based on the context below."),
-        ("user", "Context: {context}")
-    ])
-    
-    persona = memory_system.get_persona()
-    chain = prompt | llm
-    
-    try:
-        response = chain.invoke({
-            "persona": persona,
-            "tone": params["tone"],
-            "temperature": params["temperature"],
-            "context": context_str
-        })
-        draft = response.content
-    except Exception as e:
-        print(f"LLM generation failed: {e}. Using fallback.")
-        draft = f"Just read about {context_str[:20]}... I'm feeling {params['tone']}! #AI #dclaw"
-    
-    print(f"Generated Draft: {draft}")
-    
-    return {"draft_content": draft, "memory_context": memory_context}
+        self.critic_system = ContentCritic(
+            llm=self.llm,
+            use_prompt_critic=config.use_prompt_critic,
+        )
+        self.daily_constraint = DailyConstraint(
+            max_tokens=config.max_tokens_per_day,
+            max_posts=config.max_posts_per_day,
+        )
 
-def critic_node(state: AgentState):
-    """
-    Evaluates the draft for quality and policy compliance.
-    """
-    print("--- 3. Critic Review ---")
-    draft = state.get("draft_content", "")
-    
-    # Score content
-    score = critic_system.score(draft)
-    print(f"Critic Score: {score}")
-    
-    # Check budget
-    can_post = daily_constraint.can_post()
-    if not can_post:
-        print("Daily post limit reached.")
-    
-    return {
-        "quality_score": score,
-        "daily_token_budget": 1 if can_post else 0 # Simple flag for decision node
-    }
+    def _generate_draft(self, persona: str, tone: str, temperature: float, context_str: str, idx: int) -> str:
+        if self.llm is None:
+            return f"[{tone}] Insight {idx}: {context_str[:80]} #AI #dclaw"
 
-def decision_node(state: AgentState):
-    """
-    Decides whether to post or retry based on critic score.
-    """
-    print("--- 4. Decision ---")
-    score = state.get("quality_score", 0.0)
-    budget = state.get("daily_token_budget", 0)
-    
-    if score > 0.6 and budget > 0: # Threshold 0.6
-        return "post"
-    else:
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "You are DClaw, a social AI agent.\n"
+                    "Persona: {persona}\n"
+                    "Tone: {tone}\n"
+                    "Creativity temperature hint: {temperature}\n"
+                    "Generate one concise post under 280 characters.",
+                ),
+                ("user", "Context:\n{context}\n\nVariant seed: {seed}"),
+            ]
+        )
+        chain = prompt | self.llm | StrOutputParser()
+        try:
+            return chain.invoke(
+                {
+                    "persona": persona,
+                    "tone": tone,
+                    "temperature": temperature,
+                    "context": context_str,
+                    "seed": idx,
+                }
+            )
+        except Exception as exc:
+            print(f"Draft generation failed ({exc}); using fallback.")
+            return f"[{tone}] Thought {idx}: {context_str[:80]} #AI #dclaw"
+
+    def perception_node(self, state: AgentState):
+        print("--- 1. Perception/Browsing ---")
+        browsed_content = self.perception_layer.browse(platform="reddit", limit=3)
+        if browsed_content:
+            first_item = browsed_content[0]
+            title = first_item.get("title", "Untitled")
+            content = first_item.get("content", "")
+            new_memory = f"{title}: {content}".strip()
+        else:
+            new_memory = "Nothing interesting found."
+
+        self.memory_system.add_interaction(role="user", content=new_memory, metadata={"source": "reddit"})
+
+        post_history = state.get("post_history", [])
+        engagement = self.perception_layer.analyze_engagement(post_history)
+
+        emotion_engine = EmotionState(state.get("emotion_vector"))
+        event = "get_like" if engagement.get("likes", 0) > 20 else "browse_interesting"
+        new_vector = emotion_engine.update(event)
+
+        return {
+            "messages": [f"Browsed: {new_memory}"],
+            "emotion_vector": new_vector,
+            "memory_context": [new_memory],
+        }
+
+    def draft_node(self, state: AgentState):
+        print("--- 2. Drafting Content ---")
+        emotion_engine = EmotionState(state["emotion_vector"])
+        params = emotion_engine.get_generation_params()
+
+        memory_context = self.memory_system.search_memory("AI agents social media", limit=self.config.memory_top_k)
+        context_str = "\n".join(memory_context) if memory_context else "general AI trends"
+        persona = self.memory_system.get_persona()
+
+        candidates: List[str] = []
+        for idx in range(self.config.candidate_drafts):
+            candidates.append(
+                self._generate_draft(
+                    persona=persona,
+                    tone=params["tone"],
+                    temperature=params["temperature"],
+                    context_str=context_str,
+                    idx=idx + 1,
+                )
+            )
+
+        return {
+            "draft_candidates": candidates,
+            "draft_content": candidates[0] if candidates else None,
+            "memory_context": memory_context,
+            "messages": [f"Generated {len(candidates)} candidate drafts."],
+        }
+
+    def critic_node(self, state: AgentState):
+        print("--- 3. Critic Review ---")
+        candidates = state.get("draft_candidates", [])
+        if not candidates and state.get("draft_content"):
+            candidates = [state["draft_content"]]
+
+        persona = self.memory_system.get_persona()
+        tone = EmotionState(state["emotion_vector"]).get_generation_params()["tone"]
+        memory_context = state.get("memory_context", [])
+
+        best_result = None
+        best_draft = None
+        for draft in candidates:
+            result = self.critic_system.evaluate(
+                content=draft,
+                persona=persona,
+                tone=tone,
+                memory_context=memory_context,
+            )
+            if best_result is None or result["final_score"] > best_result["final_score"]:
+                best_result = result
+                best_draft = draft
+
+        if best_result is None:
+            best_result = {"final_score": 0.0, "feedback": "No draft available."}
+            best_draft = None
+
+        can_post = self.daily_constraint.can_post(content=best_draft or "", estimated_tokens=0)
+        budget_flag = 1 if can_post else 0
+
+        return {
+            "draft_content": best_draft,
+            "quality_score": float(best_result["final_score"]),
+            "critic_feedback": str(best_result["feedback"]),
+            "daily_token_budget": budget_flag,
+            "messages": [f"Best draft score: {best_result['final_score']}"],
+        }
+
+    def decision_node(self, state: AgentState):
+        print("--- 4. Decision ---")
+        score = state.get("quality_score", 0.0)
+        budget = state.get("daily_token_budget", 0)
+        if score >= self.config.quality_threshold and budget > 0:
+            return "post"
         print("Draft rejected or budget exceeded.")
         return "reject"
 
-def post_node(state: AgentState):
-    """
-    Publishes the content and updates history.
-    """
-    print("--- 5. Posting ---")
-    draft = state["draft_content"]
-    
-    # Update quota
-    daily_constraint.record_post()
-    
-    # Mock posting
-    print(f"POSTED TO SOCIAL MEDIA: {draft}")
-    
-    # Store post in memory
-    memory_system.add_interaction(role="assistant", content=draft, metadata={"type": "post", "status": "published"})
-    
-    # Trigger reflection
-    memory_system.reflect_and_consolidate()
-    
-    return {
-        "post_history": [{"content": draft, "status": "published"}],
-        "draft_content": None # Clear draft
-    }
+    def post_node(self, state: AgentState):
+        print("--- 5. Posting ---")
+        draft = state.get("draft_content") or ""
+        labeled_post = f"{self.config.agent_label} {draft}".strip()
 
-def build_graph():
+        self.daily_constraint.record_post(content=labeled_post)
+        print(f"POSTED TO SOCIAL MEDIA: {labeled_post}")
+
+        self.memory_system.add_interaction(
+            role="assistant",
+            content=labeled_post,
+            metadata={"type": "post", "status": "published"},
+        )
+        insights = self.memory_system.reflect_and_consolidate()
+
+        return {
+            "post_history": [{"content": labeled_post, "status": "published"}],
+            "draft_content": None,
+            "draft_candidates": [],
+            "messages": [f"Posted with label. Reflection insights: {len(insights)}"],
+        }
+
+
+def build_graph(config: AgentConfig | None = None):
     """
     Constructs the compiled LangGraph application.
     """
-    # Initialize SQLite checkpointer
-    db_path = "agent_state.db"
-    conn = sqlite3.connect(db_path, check_same_thread=False)
-    checkpointer = SqliteSaver(conn)
+    config = config or AgentConfig.from_env()
+    runtime = AgentRuntime(config)
 
-    # Define Graph
+    conn = sqlite3.connect(config.checkpointer_path, check_same_thread=False)
+    checkpointer = SqliteSaver(conn)
     workflow = StateGraph(AgentState)
 
-    # Add Nodes
-    workflow.add_node("perceive", perception_node)
-    workflow.add_node("draft", draft_node)
-    workflow.add_node("critic", critic_node)
-    workflow.add_node("post", post_node)
+    workflow.add_node("perceive", runtime.perception_node)
+    workflow.add_node("draft", runtime.draft_node)
+    workflow.add_node("critic", runtime.critic_node)
+    workflow.add_node("post", runtime.post_node)
 
-    # Set Entry Point
     workflow.set_entry_point("perceive")
-
-    # Add Edges
     workflow.add_edge("perceive", "draft")
     workflow.add_edge("draft", "critic")
-    
-    # Conditional Edges
     workflow.add_conditional_edges(
         "critic",
-        decision_node,
-        {
-            "post": "post",
-            "reject": "perceive" # Loop back to browse more if content is bad
-        }
+        runtime.decision_node,
+        {"post": "post", "reject": "perceive"},
     )
-    
     workflow.add_edge("post", END)
-
-    # Compile
-    app = workflow.compile(checkpointer=checkpointer)
-    return app
+    return workflow.compile(checkpointer=checkpointer)
