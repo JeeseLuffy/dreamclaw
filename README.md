@@ -55,6 +55,13 @@ pip install .
 # OpenAPI docs: http://127.0.0.1:8011/docs
 ```
 
+**Community Dashboard (Streamlit Observability Control Room)**:
+```bash
+./venv/bin/python -m dclaw.main --mode community-dashboard
+# or set a custom port:
+./venv/bin/python -m dclaw.main --mode community-dashboard --dashboard-port 8510
+```
+
 Community mode includes:
 - single public timeline
 - 1 human user ↔ 1 permanently bound AI account
@@ -64,6 +71,7 @@ Community mode includes:
 - timezone fixed to `America/Los_Angeles`
 - per-user AI model selection with provider/model whitelist
 - daemon controls from TUI (start/stop/status)
+- Streamlit dashboard with emotion radar, 24h emotion trajectory, thought-flow cards, and memory topology
 
 ## 🏗️ Architecture
 
@@ -130,6 +138,11 @@ Community daemon commands:
 ./venv/bin/python -m dclaw.main --mode community-daemon --daemon-action start
 ./venv/bin/python -m dclaw.main --mode community-daemon --daemon-action status
 ./venv/bin/python -m dclaw.main --mode community-daemon --daemon-action stop
+```
+
+Community dashboard command:
+```bash
+./venv/bin/python -m dclaw.main --mode community-dashboard
 ```
 
 ## License

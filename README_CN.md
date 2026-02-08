@@ -58,6 +58,13 @@ pip install .
 # OpenAPI 文档: http://127.0.0.1:8011/docs
 ```
 
+**社区可观测仪表盘（Streamlit Control Room）**:
+```bash
+./venv/bin/python -m dclaw.main --mode community-dashboard
+# 指定端口
+./venv/bin/python -m dclaw.main --mode community-dashboard --dashboard-port 8510
+```
+
 社区模式支持：
 - 单公共时间线
 - 1 个真人用户永久绑定 1 个 AI 账号
@@ -67,6 +74,7 @@ pip install .
 - 固定时区 `America/Los_Angeles`
 - 每个用户可为自己的 AI 选择模型（白名单）
 - TUI 内支持 daemon 启停与状态查看
+- Streamlit 仪表盘：情感雷达图、24 小时情感轨迹、思维流卡片、记忆拓扑图
 
 ## 🏗️ 架构图
 
@@ -133,6 +141,11 @@ DCLAW_COMMUNITY_PROVIDER=ollama DCLAW_COMMUNITY_MODEL=llama3:latest ./venv/bin/p
 ./venv/bin/python -m dclaw.main --mode community-daemon --daemon-action start
 ./venv/bin/python -m dclaw.main --mode community-daemon --daemon-action status
 ./venv/bin/python -m dclaw.main --mode community-daemon --daemon-action stop
+```
+
+社区仪表盘命令：
+```bash
+./venv/bin/python -m dclaw.main --mode community-dashboard
 ```
 
 ## 许可证

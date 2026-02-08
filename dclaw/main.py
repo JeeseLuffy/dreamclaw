@@ -5,6 +5,11 @@ from dclaw.graph import build_graph
 from dclaw.config import AgentConfig
 
 def run_agent(mode="interactive", thread_id=None):
+    if mode == "community-dashboard":
+        from dclaw.community_dashboard import launch_dashboard
+        port = int(getattr(run_agent, "_dashboard_port", 8501))
+        launch_dashboard(port=port)
+        return
     if mode == "community":
         from dclaw.community_tui import run as run_community_tui
         run_community_tui()
@@ -95,10 +100,12 @@ def run_agent(mode="interactive", thread_id=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run DClaw Agent")
-    parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon", "resume", "community", "community-daemon", "community-online"], help="Run mode")
+    parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon", "resume", "community", "community-daemon", "community-online", "community-dashboard"], help="Run mode")
     parser.add_argument("--daemon-action", type=str, default="status", choices=["start", "stop", "status", "run"], help="Community daemon action")
+    parser.add_argument("--dashboard-port", type=int, default=8501, help="Community dashboard port")
     parser.add_argument("--thread_id", type=str, help="Resume specific thread ID")
     
     args = parser.parse_args()
     setattr(run_agent, "_daemon_action", args.daemon_action)
+    setattr(run_agent, "_dashboard_port", args.dashboard_port)
     run_agent(mode=args.mode, thread_id=args.thread_id)
