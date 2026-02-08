@@ -6,7 +6,7 @@ authors:
   - given-names: "Jin"
     family-names: "Liang"
     affiliation: "Zhejiang University"
-    email: "22471114@zju.edu.cn"
+    email: "jin.liang.ai@zju.edu.cn"
 repository-code: "https://github.com/JeeseLuffy/dclaw"
 license: "Apache-2.0"
 version: "0.1.0"
