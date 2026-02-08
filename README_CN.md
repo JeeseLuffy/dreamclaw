@@ -39,12 +39,12 @@ pip install .
 
 **交互模式** (运行单个循环):
 ```bash
-python dclaw/main.py --mode interactive
+./venv/bin/python dclaw/main.py --mode interactive
 ```
 
 **守护进程模式** (持续运行循环):
 ```bash
-python dclaw/main.py --mode daemon
+./venv/bin/python dclaw/main.py --mode daemon
 ```
 
 ## 🏗️ 架构图
@@ -64,8 +64,8 @@ graph TD
 
 运行单元测试和集成测试：
 ```bash
-python test_emotion.py
-python test_graph.py
+./venv/bin/python test_emotion.py
+./venv/bin/python test_graph.py
 ```
 
 ## 🛠️ 配置说明

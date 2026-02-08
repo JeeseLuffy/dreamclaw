@@ -36,12 +36,12 @@ pip install .
 
 **Interactive Mode** (Run a single cycle):
 ```bash
-python dclaw/main.py --mode interactive
+./venv/bin/python dclaw/main.py --mode interactive
 ```
 
 **Daemon Mode** (Run continuously loop):
 ```bash
-python dclaw/main.py --mode daemon
+./venv/bin/python dclaw/main.py --mode daemon
 ```
 
 ## 🏗️ Architecture
@@ -61,8 +61,8 @@ graph TD
 
 Run unit and integration tests:
 ```bash
-python test_emotion.py
-python test_graph.py
+./venv/bin/python test_emotion.py
+./venv/bin/python test_graph.py
 ```
 
 ## 🛠️ Configuration
