@@ -51,7 +51,7 @@ class ContentCritic:
         overlap = sum(1 for word in content_words if word in source)
         return overlap / len(content_words)
 
-    def _prompt_score(self, content: str, persona: str, tone: str) -> Dict[str, str]:
+    def _prompt_score(self, content: str, persona: str, tone: str, llm_invoke=None) -> Dict[str, str]:
         if not self.use_prompt_critic:
             return {"score": None, "feedback": "Prompt critic disabled."}
 
@@ -71,8 +71,9 @@ class ContentCritic:
 
         try:
             inputs = {"persona": persona, "tone": tone, "draft": content}
-            if self.llm_invoke is not None:
-                raw = self.llm_invoke(
+            invoke_fn = llm_invoke or self.llm_invoke
+            if invoke_fn is not None:
+                raw = invoke_fn(
                     "You are a strict social-media editor. Rate draft quality from 0 to 1.\n"
                     "Return exactly: SCORE=<number>;FEEDBACK=<short reason>.\n\n"
                     f"Persona:\n{persona}\n\nDesired tone: {tone}\n\nDraft:\n{content}"
@@ -96,9 +97,10 @@ class ContentCritic:
         persona: str,
         tone: str = "objective",
         memory_context: Optional[List[str]] = None,
+        llm_invoke=None,
     ) -> Dict[str, float | str]:
         rule_score = self._rule_score(content, memory_context)
-        prompt_eval = self._prompt_score(content, persona, tone)
+        prompt_eval = self._prompt_score(content, persona, tone, llm_invoke=llm_invoke)
         prompt_score = prompt_eval["score"]
         feedback = prompt_eval["feedback"]
 

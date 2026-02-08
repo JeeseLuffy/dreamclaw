@@ -7,6 +7,7 @@ from rich.prompt import IntPrompt, Prompt
 from rich.table import Table
 
 from dclaw.community_config import CommunityConfig
+from dclaw.community_daemon import daemon_status, start_daemon, stop_daemon
 from dclaw.community_service import CommunityService
 
 
@@ -57,7 +58,7 @@ class CommunityTUI:
         self.console.print(
             Panel.fit(
                 (
-                    "[bold cyan]OpenClaw Community TUI[/bold cyan]\n"
+                    "[bold cyan]DClaw Community TUI[/bold cyan]\n"
                     "Local text community with 1-user-1-AI binding.\n"
                     f"Scheduler: every {self.config.scheduler_interval_seconds} seconds\n"
                     f"Timezone: {self.config.timezone}\n"
@@ -116,11 +117,15 @@ class CommunityTUI:
             "4) Reply to content\n"
             "5) Like content\n"
             "6) Run AI tick now\n"
-            "7) Toggle scheduler\n"
-            "8) Community metrics\n"
-            "9) My dashboard\n"
-            "10) Recent AI traces\n"
-            "11) List users\n"
+            "7) Toggle local scheduler\n"
+            "8) Start daemon\n"
+            "9) Stop daemon\n"
+            "10) Daemon status\n"
+            "11) Community metrics\n"
+            "12) My dashboard\n"
+            "13) Recent AI traces\n"
+            "14) List users\n"
+            "15) Set my AI model\n"
             "0) Exit\n"
         )
 
@@ -140,13 +145,21 @@ class CommunityTUI:
         elif choice == "7":
             self._toggle_scheduler()
         elif choice == "8":
-            self._show_metrics()
+            self._start_daemon()
         elif choice == "9":
-            self._show_dashboard()
+            self._stop_daemon()
         elif choice == "10":
-            self._show_traces()
+            self._daemon_status()
         elif choice == "11":
+            self._show_metrics()
+        elif choice == "12":
+            self._show_dashboard()
+        elif choice == "13":
+            self._show_traces()
+        elif choice == "14":
             self._list_users()
+        elif choice == "15":
+            self._set_my_ai_model()
         else:
             self.console.print("[yellow]Unknown option.[/yellow]")
 
@@ -225,6 +238,17 @@ class CommunityTUI:
             self.start_scheduler()
             self.console.print("[green]Scheduler started.[/green]")
 
+    def _start_daemon(self):
+        result = start_daemon(self.config)
+        self.console.print(result)
+
+    def _stop_daemon(self):
+        result = stop_daemon()
+        self.console.print(result)
+
+    def _daemon_status(self):
+        self.console.print(daemon_status())
+
     def _show_metrics(self):
         metrics = self.service.community_metrics()
         table = Table(title="Community Metrics")
@@ -255,6 +279,7 @@ class CommunityTUI:
             Panel.fit(
                 (
                     f"[bold]{data['nickname']}[/bold] | AI: [cyan]@{data['ai_handle']}[/cyan]\n"
+                    f"Model: {data['provider']}/{data['model']}\n"
                     f"Persona: {data['persona']}\n"
                     f"Human quota today: {data['human_quota']['total_count']}/{self.config.human_daily_limit}\n"
                     f"AI posts today: {data['ai_quota']['post_count']}/{self.config.ai_post_daily_limit}\n"
@@ -293,8 +318,33 @@ class CommunityTUI:
         table.add_column("Nickname", width=18)
         table.add_column("AI Handle", width=20)
         for user in users:
-            table.add_row(str(user["id"]), user["nickname"], f"@{user['ai_handle']}")
+            table.add_row(
+                str(user["id"]),
+                user["nickname"],
+                f"@{user['ai_handle']} ({user['provider']}/{user['model']})",
+            )
         self.console.print(table)
+
+    def _set_my_ai_model(self):
+        self._require_login()
+        model_map = self.service.available_models()
+        table = Table(title="Model Whitelist")
+        table.add_column("Provider", width=12)
+        table.add_column("Models")
+        for provider, models in model_map.items():
+            table.add_row(provider, ", ".join(models))
+        self.console.print(table)
+
+        provider = Prompt.ask("Provider").strip().lower()
+        model = Prompt.ask("Model").strip()
+        updated = self.service.update_user_ai_model(
+            user_id=self.current_user["user_id"],
+            provider=provider,
+            model=model,
+        )
+        self.current_user["provider"] = updated["provider"]
+        self.current_user["model"] = updated["model"]
+        self.console.print(f"[green]Updated:[/green] {updated['provider']}/{updated['model']}")
 
 
 def run():

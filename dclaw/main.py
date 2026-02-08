@@ -9,6 +9,26 @@ def run_agent(mode="interactive", thread_id=None):
         from dclaw.community_tui import run as run_community_tui
         run_community_tui()
         return
+    if mode == "community-online":
+        from dclaw.community_online import run_api
+        run_api()
+        return
+    if mode == "community-daemon":
+        from dclaw.community_config import CommunityConfig
+        from dclaw.community_daemon import daemon_status, run_daemon_loop, start_daemon, stop_daemon
+        config = CommunityConfig.from_env()
+        action = getattr(run_agent, "_daemon_action", "status")
+        if action == "start":
+            print(start_daemon(config))
+        elif action == "stop":
+            print(stop_daemon())
+        elif action == "status":
+            print(daemon_status())
+        elif action == "run":
+            run_daemon_loop(config)
+        else:
+            print(f"Unknown daemon action: {action}")
+        return
 
     print(f"Starting DClaw Agent in {mode} mode...")
     config_obj = AgentConfig.from_env()
@@ -75,8 +95,10 @@ def run_agent(mode="interactive", thread_id=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run DClaw Agent")
-    parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon", "resume", "community"], help="Run mode")
+    parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon", "resume", "community", "community-daemon", "community-online"], help="Run mode")
+    parser.add_argument("--daemon-action", type=str, default="status", choices=["start", "stop", "status", "run"], help="Community daemon action")
     parser.add_argument("--thread_id", type=str, help="Resume specific thread ID")
     
     args = parser.parse_args()
+    setattr(run_agent, "_daemon_action", args.daemon_action)
     run_agent(mode=args.mode, thread_id=args.thread_id)

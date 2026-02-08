@@ -70,6 +70,16 @@ PERSONA_VALUES = [
     "practical engineering",
 ]
 
+MODEL_WHITELIST = {
+    "ollama": ["llama3:latest", "qwen2.5:7b", "gemma3:12b", "deepseek-r1:7b"],
+    "openai": ["gpt-4o-mini", "gpt-4.1-mini"],
+    "anthropic": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
+    "google": ["gemini-2.0-flash", "gemini-1.5-pro"],
+    "deepseek": ["deepseek-chat", "deepseek-reasoner"],
+    "moonshot": ["moonshot-v1-8k", "moonshot-v1-32k"],
+    "qwen": ["qwen-max", "qwen-plus"],
+}
+
 
 class CommunityService:
     def __init__(self, config: CommunityConfig):
@@ -77,19 +87,15 @@ class CommunityService:
         self.db = CommunityDB(config.db_path)
         self.timezone = ZoneInfo(config.timezone)
         self.random = random.Random()
-        self.provider = None
+        self.provider_cache: dict[tuple[str, str], Any] = {}
+        self.provider_available: dict[tuple[str, str], bool] = {}
         self.provider_error = ""
 
-        try:
-            self.provider = build_provider(config.provider, config.model)
-        except ProviderConfigurationError as exc:
-            self.provider_error = str(exc)
-        except Exception as exc:
-            self.provider_error = f"Provider init failed: {exc}"
+        self._resolve_provider(config.provider, config.model)
 
         self.critic = ContentCritic(
             llm=None,
-            llm_invoke=self._critic_llm_invoke if self.provider else None,
+            llm_invoke=None,
             use_prompt_critic=True,
         )
 
@@ -108,11 +114,63 @@ class CommunityService:
         return local_dt.strftime("%Y-%m-%d")
 
     # ---------- Providers ----------
-    def _safe_generate(self, system_prompt: str, user_prompt: str, temperature: float = 0.7, max_tokens: int = 180) -> str:
-        if not self.provider:
+    def available_models(self) -> dict[str, list[str]]:
+        return {provider: list(models) for provider, models in MODEL_WHITELIST.items()}
+
+    def _is_model_allowed(self, provider: str, model: str) -> bool:
+        provider_name = provider.lower()
+        if provider_name not in MODEL_WHITELIST:
+            return False
+        return model in MODEL_WHITELIST[provider_name]
+
+    def _resolve_provider(self, provider: str, model: str):
+        key = (provider.lower(), model)
+        if key in self.provider_cache:
+            return self.provider_cache[key]
+        try:
+            instance = build_provider(provider, model)
+            self.provider_cache[key] = instance
+            self.provider_available[key] = True
+            return instance
+        except ProviderRequestError as exc:
+            self.provider_error = str(exc)
+            self.provider_available[key] = False
+            self.provider_cache[key] = None
+            return None
+        except ProviderConfigurationError as exc:
+            self.provider_error = str(exc)
+            self.provider_available[key] = False
+            self.provider_cache[key] = None
+            return None
+        except Exception as exc:
+            self.provider_error = str(exc)
+            self.provider_available[key] = False
+            self.provider_cache[key] = None
+            return None
+
+    def _fallback_provider_model(self) -> tuple[str, str]:
+        return "ollama", "llama3:latest"
+
+    def _safe_generate(
+        self,
+        provider: str,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.7,
+        max_tokens: int = 180,
+    ) -> str:
+        resolved = self._resolve_provider(provider, model)
+        if resolved is None:
+            fallback_provider, fallback_model = self._fallback_provider_model()
+            if (provider.lower(), model) != (fallback_provider, fallback_model):
+                resolved = self._resolve_provider(fallback_provider, fallback_model)
+                provider = fallback_provider
+                model = fallback_model
+        if resolved is None:
             return ""
         try:
-            return self.provider.generate(
+            return resolved.generate(
                 PromptInput(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
@@ -120,15 +178,14 @@ class CommunityService:
                     max_tokens=max_tokens,
                 )
             )
-        except ProviderRequestError as exc:
-            self.provider_error = str(exc)
-            return ""
         except Exception as exc:
-            self.provider_error = str(exc)
+            self.provider_error = f"{provider}/{model}: {exc}"
             return ""
 
-    def _critic_llm_invoke(self, prompt: str) -> str:
+    def _critic_llm_invoke(self, provider: str, model: str, prompt: str) -> str:
         return self._safe_generate(
+            provider=provider,
+            model=model,
             system_prompt="You are a strict content critic. Return exactly in requested format.",
             user_prompt=prompt,
             temperature=0.1,
@@ -155,6 +212,8 @@ class CommunityService:
             "nickname": user_row["nickname"],
             "ai_account_id": ai_row["id"],
             "ai_handle": ai_row["handle"],
+            "provider": ai_row["provider"],
+            "model": ai_row["model"],
             "persona": ai_row["persona"],
         }
 
@@ -176,10 +235,19 @@ class CommunityService:
 
         self.db.execute(
             """
-            INSERT INTO ai_accounts (user_id, handle, persona, emotion_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO ai_accounts (user_id, handle, persona, emotion_json, provider, model, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (user_id, handle, persona, json.dumps(emotion_vector), now_iso, now_iso),
+            (
+                user_id,
+                handle,
+                persona,
+                json.dumps(emotion_vector),
+                self.config.provider,
+                self.config.model,
+                now_iso,
+                now_iso,
+            ),
         )
 
         ai_row = self.db.fetchone("SELECT * FROM ai_accounts WHERE user_id = ?", (user_id,))
@@ -232,7 +300,7 @@ class CommunityService:
     def list_users(self, limit: int = 100) -> list[dict[str, Any]]:
         rows = self.db.fetchall(
             """
-            SELECT u.id, u.nickname, a.handle AS ai_handle, a.persona
+            SELECT u.id, u.nickname, a.handle AS ai_handle, a.persona, a.provider, a.model
             FROM users u
             JOIN ai_accounts a ON a.user_id = u.id
             ORDER BY u.id ASC
@@ -241,6 +309,38 @@ class CommunityService:
             (limit,),
         )
         return [dict(row) for row in rows]
+
+    def update_user_ai_model(self, user_id: int, provider: str, model: str) -> dict[str, Any]:
+        provider_name = provider.lower().strip()
+        model_name = model.strip()
+        if not self._is_model_allowed(provider_name, model_name):
+            raise ValueError("Model not in whitelist.")
+
+        ai = self.db.fetchone("SELECT * FROM ai_accounts WHERE user_id = ?", (user_id,))
+        if not ai:
+            raise ValueError("AI account not found for user.")
+
+        resolved = self._resolve_provider(provider_name, model_name)
+        if resolved is None:
+            fallback_provider, fallback_model = self._fallback_provider_model()
+            if (provider_name, model_name) != (fallback_provider, fallback_model):
+                fallback = self._resolve_provider(fallback_provider, fallback_model)
+                if fallback is None:
+                    raise ValueError("Target model unavailable and fallback provider unavailable.")
+                provider_name, model_name = fallback_provider, fallback_model
+            else:
+                raise ValueError("Target model unavailable.")
+
+        self.db.execute(
+            """
+            UPDATE ai_accounts
+            SET provider = ?, model = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (provider_name, model_name, self._iso_now(), ai["id"]),
+        )
+        updated = self.db.fetchone("SELECT * FROM ai_accounts WHERE id = ?", (ai["id"],))
+        return dict(updated)
 
     # ---------- Quota logic ----------
     def _get_or_create_quota(self, subject_type: str, subject_id: int, day_key: str):
@@ -412,7 +512,16 @@ class CommunityService:
         now_iso = self._iso_now()
 
         persona = ai["persona"]
+        provider = (ai.get("provider") or self.config.provider).lower()
+        model = ai.get("model") or self.config.model
         current_emotion = json.loads(ai["emotion_json"])
+        persona, current_emotion = self._apply_feedback_learning(
+            ai_account_id=ai_id,
+            persona=persona,
+            emotion_vector=current_emotion,
+            provider=provider,
+            model=model,
+        )
         emotion_engine = EmotionState(current_emotion)
         tone = emotion_engine.get_generation_params()["tone"]
 
@@ -479,6 +588,8 @@ class CommunityService:
                     context_lines=context_lines,
                     seed=index + 1,
                     target_excerpt=target_excerpt,
+                    provider=provider,
+                    model=model,
                 )
             )
 
@@ -500,6 +611,8 @@ class CommunityService:
                     tone=tone,
                     emotion_vector=new_emotion,
                     memory_context=context_lines,
+                    provider=provider,
+                    model=model,
                 )
             )
 
@@ -528,8 +641,8 @@ class CommunityService:
             return "skip"
 
         metadata = {
-            "provider": self.config.provider,
-            "model": self.config.model,
+            "provider": provider,
+            "model": model,
             "critic_feedback": best["critic_feedback"],
         }
         content_id = self._insert_ai_content(
@@ -578,6 +691,8 @@ class CommunityService:
         context_lines: list[str],
         seed: int,
         target_excerpt: str = "",
+        provider: str = "ollama",
+        model: str = "llama3:latest",
     ) -> str:
         context = "\n".join(context_lines[:8]) if context_lines else "No notable context."
         if action == "post":
@@ -597,7 +712,14 @@ class CommunityService:
             f"You are @{ai_handle}. Persona:\n{persona}\n\n"
             "Be authentic, concise, and useful. Return only the content text."
         )
-        generated = self._safe_generate(system_prompt, user_prompt, temperature=0.7, max_tokens=140)
+        generated = self._safe_generate(
+            provider=provider,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.7,
+            max_tokens=140,
+        )
         if generated:
             return generated.strip().replace("\n", " ")[:280]
 
@@ -613,12 +735,15 @@ class CommunityService:
         tone: str,
         emotion_vector: dict[str, float],
         memory_context: list[str],
+        provider: str,
+        model: str,
     ) -> dict[str, Any]:
         critic_eval = self.critic.evaluate(
             content=draft,
             persona=persona,
             tone=tone,
             memory_context=memory_context,
+            llm_invoke=lambda prompt: self._critic_llm_invoke(provider, model, prompt),
         )
         quality_score = float(critic_eval["final_score"])
         persona_score = self._persona_consistency(draft, persona)
@@ -718,6 +843,190 @@ class CommunityService:
             """,
             (ai_account_id, phase, summary, json.dumps(details), day_key, created_at),
         )
+
+    def _apply_feedback_learning(
+        self,
+        ai_account_id: int,
+        persona: str,
+        emotion_vector: dict[str, float],
+        provider: str,
+        model: str,
+    ) -> tuple[str, dict[str, float]]:
+        since_iso = (self._now() - timedelta(hours=24)).isoformat()
+        rows = self.db.fetchall(
+            """
+            SELECT c.id, c.body, c.content_type,
+                (SELECT COUNT(*) FROM interactions i WHERE i.content_id = c.id AND i.interaction_type = 'like') AS likes,
+                (SELECT COUNT(*) FROM content r WHERE r.parent_id = c.id) AS replies
+            FROM content c
+            WHERE c.ai_account_id = ? AND c.created_at >= ?
+            ORDER BY c.id DESC
+            LIMIT 30
+            """,
+            (ai_account_id, since_iso),
+        )
+        if not rows:
+            return persona, emotion_vector
+
+        current = dict(emotion_vector)
+        persona_now = persona
+        trending_tokens = self._community_trending_tokens(hours=24, limit=8)
+        processed_any = False
+
+        for row in rows:
+            existing = self.db.fetchone(
+                "SELECT id FROM feedback_processed WHERE ai_account_id = ? AND content_id = ?",
+                (ai_account_id, row["id"]),
+            )
+            if existing:
+                continue
+
+            likes = int(row["likes"] or 0)
+            replies = int(row["replies"] or 0)
+            engagement = likes + replies
+            ignored = 1 if engagement == 0 else 0
+            drift = self._topic_drift_score(persona_now, row["body"], trending_tokens)
+
+            current = self._update_emotion_from_feedback(current, likes, replies, ignored, drift)
+            drift_cap = self._adaptive_drift_cap(engagement, ignored, drift)
+            persona_now = self._reflexion_update_persona(
+                persona=persona_now,
+                content_text=row["body"],
+                likes=likes,
+                replies=replies,
+                ignored=ignored,
+                topic_drift=drift,
+                provider=provider,
+                model=model,
+                drift_cap=drift_cap,
+            )
+
+            self.db.execute(
+                """
+                INSERT INTO feedback_processed (ai_account_id, content_id, processed_at, likes, replies, ignored, topic_drift)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (ai_account_id, row["id"], self._iso_now(), likes, replies, ignored, drift),
+            )
+            processed_any = True
+
+        if processed_any:
+            self._trace(
+                ai_account_id=ai_account_id,
+                phase="reflect",
+                summary="Applied 24h feedback learning (likes/replies/ignored/topic drift).",
+                details={"provider": provider, "model": model},
+                day_key=self._day_key(),
+                created_at=self._iso_now(),
+            )
+        return persona_now, current
+
+    def _update_emotion_from_feedback(
+        self,
+        emotion_vector: dict[str, float],
+        likes: int,
+        replies: int,
+        ignored: int,
+        topic_drift: float,
+    ) -> dict[str, float]:
+        next_vector = dict(emotion_vector)
+        engagement_gain = min(1.0, (likes * 0.06) + (replies * 0.09))
+        next_vector["Joy"] = min(1.0, next_vector["Joy"] + (0.25 * engagement_gain))
+        next_vector["Excitement"] = min(1.0, next_vector["Excitement"] + (0.2 * engagement_gain))
+        next_vector["Curiosity"] = min(1.0, next_vector["Curiosity"] + (0.15 * topic_drift))
+        if ignored:
+            next_vector["Frustration"] = min(1.0, next_vector["Frustration"] + 0.12)
+            next_vector["Fatigue"] = min(1.0, next_vector["Fatigue"] + 0.08)
+            next_vector["Excitement"] = max(0.0, next_vector["Excitement"] - 0.06)
+        if replies >= 2:
+            next_vector["Anxiety"] = min(1.0, next_vector["Anxiety"] + 0.04)
+        return next_vector
+
+    def _adaptive_drift_cap(self, engagement: int, ignored: int, topic_drift: float) -> float:
+        base = 0.08
+        if engagement >= 4:
+            base = 0.05
+        elif ignored:
+            base = 0.10
+        adjusted = base + (0.05 * min(1.0, topic_drift))
+        return max(0.05, min(0.12, adjusted))
+
+    def _reflexion_update_persona(
+        self,
+        persona: str,
+        content_text: str,
+        likes: int,
+        replies: int,
+        ignored: int,
+        topic_drift: float,
+        provider: str,
+        model: str,
+        drift_cap: float,
+    ) -> str:
+        system_prompt = (
+            "You are a persona optimizer for social AI agents.\n"
+            "Return one line guidance phrase only."
+        )
+        user_prompt = (
+            f"Current persona: {persona}\n"
+            f"Last content: {content_text}\n"
+            f"Signals -> likes:{likes}, replies:{replies}, ignored:{ignored}, topic_drift:{topic_drift:.2f}\n"
+            "Suggest a short adaptation phrase."
+        )
+        generated = self._safe_generate(
+            provider=provider,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=0.3,
+            max_tokens=60,
+        )
+        candidate = generated.strip() if generated else self._fallback_reflexion_phrase(content_text, ignored, topic_drift)
+        return self._bounded_persona_update(persona, candidate, drift_cap)
+
+    def _fallback_reflexion_phrase(self, content_text: str, ignored: int, topic_drift: float) -> str:
+        token = next(iter(self._tokens(content_text)), "community")
+        if ignored:
+            return f"Shift toward clearer and more practical points around {token}."
+        if topic_drift > 0.5:
+            return f"Explore emerging discussion around {token}."
+        return f"Reinforce concise takes about {token}."
+
+    def _bounded_persona_update(self, current_persona: str, candidate_phrase: str, drift_cap: float) -> str:
+        current_tokens = list(self._tokens(current_persona))
+        candidate_tokens = [token for token in self._tokens(candidate_phrase) if token not in current_tokens]
+        if not candidate_tokens:
+            return current_persona
+
+        max_new_tokens = max(1, int(max(1, len(current_tokens)) * drift_cap))
+        chosen = candidate_tokens[:max_new_tokens]
+        suffix = " ".join(chosen)
+        if not suffix:
+            return current_persona
+        updated = f"{current_persona} Adaptive focus: {suffix}."
+        return updated[:420]
+
+    def _community_trending_tokens(self, hours: int = 24, limit: int = 8) -> list[str]:
+        since_iso = (self._now() - timedelta(hours=hours)).isoformat()
+        rows = self.db.fetchall(
+            "SELECT body FROM content WHERE created_at >= ? ORDER BY id DESC LIMIT 200",
+            (since_iso,),
+        )
+        counter = Counter()
+        for row in rows:
+            counter.update(self._tokens(row["body"]))
+        return [token for token, _count in counter.most_common(limit)]
+
+    def _topic_drift_score(self, persona: str, content_text: str, trending_tokens: list[str]) -> float:
+        persona_tokens = self._tokens(persona)
+        content_tokens = self._tokens(content_text)
+        trend_tokens = set(trending_tokens)
+        if not content_tokens:
+            return 0.0
+        trend_overlap = len(content_tokens & trend_tokens) / max(1, len(content_tokens))
+        persona_overlap = len(content_tokens & persona_tokens) / max(1, len(content_tokens))
+        drift = max(0.0, trend_overlap - persona_overlap)
+        return round(min(1.0, drift), 3)
 
     # ---------- Metrics ----------
     def community_metrics(self, lookback_days: int = 7) -> dict[str, Any]:
@@ -846,6 +1155,8 @@ class CommunityService:
         return {
             "nickname": user["nickname"],
             "ai_handle": ai["handle"],
+            "provider": ai["provider"],
+            "model": ai["model"],
             "persona": ai["persona"],
             "human_quota": dict(human_quota),
             "ai_quota": dict(ai_quota),

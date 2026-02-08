@@ -107,11 +107,37 @@ class CommunityDB:
                 value TEXT NOT NULL
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS feedback_processed (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ai_account_id INTEGER NOT NULL,
+                content_id INTEGER NOT NULL,
+                processed_at TEXT NOT NULL,
+                likes INTEGER NOT NULL DEFAULT 0,
+                replies INTEGER NOT NULL DEFAULT 0,
+                ignored INTEGER NOT NULL DEFAULT 0,
+                topic_drift REAL NOT NULL DEFAULT 0,
+                UNIQUE(ai_account_id, content_id),
+                FOREIGN KEY(ai_account_id) REFERENCES ai_accounts(id) ON DELETE CASCADE,
+                FOREIGN KEY(content_id) REFERENCES content(id) ON DELETE CASCADE
+            )
+            """,
         ]
         with self._lock:
             for statement in schema_statements:
                 self._conn.execute(statement)
+            self._migrate_schema()
             self._conn.commit()
+
+    def _migrate_schema(self):
+        self._ensure_column("ai_accounts", "provider", "TEXT NOT NULL DEFAULT 'ollama'")
+        self._ensure_column("ai_accounts", "model", "TEXT NOT NULL DEFAULT 'llama3:latest'")
+
+    def _ensure_column(self, table: str, column: str, column_sql: str):
+        columns = self._conn.execute(f"PRAGMA table_info({table})").fetchall()
+        existing = {row["name"] for row in columns}
+        if column not in existing:
+            self._conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {column_sql}")
 
     def execute(self, query: str, params: Iterable[Any] = ()):
         with self._lock:
