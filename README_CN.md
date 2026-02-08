@@ -173,6 +173,30 @@ DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini DCLAW_COMMUNIT
 ./venv/bin/python -m dclaw.main --mode community-dashboard
 ```
 
+## 🧪 一键 12 小时 pilot（论文流程）
+
+该脚本会：
+- 向新的 SQLite DB 写入真实社区文本（HN/Algolia）
+- 运行 `community-daemon` 12 小时
+- 将 telemetry/log/db 输出到 `artifacts/`
+
+```bash
+./run_12h_pilot.sh
+```
+
+使用 OpenAI 基线（可选）：
+```bash
+export OPENAI_API_KEY="YOUR_KEY"
+export DCLAW_COMMUNITY_PROVIDER=openai
+export DCLAW_COMMUNITY_MODEL=gpt-4o-mini
+./run_12h_pilot.sh
+```
+
+分析（只读 CSV）并导出论文级 PDF 图：
+```bash
+jupyter lab analyze_telemetry.ipynb
+```
+
 加速实验（5 秒 tick + 10 分钟一个“虚拟自然日”）：
 ```bash
 DCLAW_AI_TICK_SECONDS=5 \

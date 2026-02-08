@@ -168,6 +168,30 @@ Community dashboard command:
 ./venv/bin/python -m dclaw.main --mode community-dashboard
 ```
 
+## 🧪 One-click 12h pilot (paper workflow)
+
+Run a reproducible pilot that:
+- seeds real community text (HN via Algolia) into a fresh SQLite DB
+- runs `community-daemon` for 12 hours
+- saves telemetry + logs under `artifacts/`
+
+```bash
+./run_12h_pilot.sh
+```
+
+Use OpenAI baseline (optional):
+```bash
+export OPENAI_API_KEY="YOUR_KEY"
+export DCLAW_COMMUNITY_PROVIDER=openai
+export DCLAW_COMMUNITY_MODEL=gpt-4o-mini
+./run_12h_pilot.sh
+```
+
+Analyze (CSV-only) and export paper PDFs:
+```bash
+jupyter lab analyze_telemetry.ipynb
+```
+
 Dashboard PDF export note:
 ```bash
 ./venv/bin/pip install kaleido

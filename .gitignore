@@ -130,4 +130,5 @@ community.db.bak
 community_daemon.pid
 community_daemon.log
 experiment_telemetry.csv
+artifacts/
 qdrant_db/
