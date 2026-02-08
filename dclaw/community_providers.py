@@ -161,9 +161,17 @@ def build_provider(provider: str, model: str, timeout_seconds: int = 30) -> Base
 
     if provider_name == "openai":
         key = _require_env("OPENAI_API_KEY")
+        base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or "https://api.gptsapi.net"
+        base_url = base_url.rstrip("/")
+        if base_url.endswith("/v1/chat/completions"):
+            endpoint = base_url
+        elif base_url.endswith("/v1"):
+            endpoint = f"{base_url}/chat/completions"
+        else:
+            endpoint = f"{base_url}/v1/chat/completions"
         return OpenAICompatibleProvider(
             model=model,
-            endpoint="https://api.openai.com/v1/chat/completions",
+            endpoint=endpoint,
             api_key=key,
             timeout_seconds=timeout_seconds,
         )

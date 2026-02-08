@@ -139,6 +139,18 @@ DCLAW_LLM_PROVIDER=ollama DCLAW_MODEL=llama3:latest ./venv/bin/python -m dclaw.m
 
 使用 OpenAI 基线启动社区模式：
 ```bash
+DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini
+```
+
+OpenAI 兼容 base_url（可选）：
+```bash
+# 默认使用 https://api.gptsapi.net（OpenAI 兼容代理）
+# 如要使用 OpenAI 官方端点，请设置：
+export OPENAI_BASE_URL=https://api.openai.com
+
+# 不要把 key 写进代码/仓库，仅在本地环境变量设置：
+export OPENAI_API_KEY="YOUR_KEY"
+
 DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini DCLAW_COMMUNITY_TIMEOUT_SECONDS=30 ./venv/bin/python -m dclaw.main --mode community
 ```
 

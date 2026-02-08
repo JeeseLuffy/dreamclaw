@@ -134,6 +134,18 @@ Community mode is env-driven via `dclaw/community_config.py`:
 
 Run community mode with OpenAI baseline:
 ```bash
+DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini
+```
+
+OpenAI-compatible base URL (optional):
+```bash
+# Default is https://api.gptsapi.net (OpenAI-compatible proxy)
+# Set this to use the official OpenAI endpoint:
+export OPENAI_BASE_URL=https://api.openai.com
+
+# Never commit keys. Use env vars locally:
+export OPENAI_API_KEY="YOUR_KEY"
+
 DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini DCLAW_COMMUNITY_TIMEOUT_SECONDS=30 ./venv/bin/python -m dclaw.main --mode community
 ```
 
