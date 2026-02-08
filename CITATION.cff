@@ -7,7 +7,7 @@ authors:
     family-names: "Liang"
     affiliation: "Zhejiang University"
     email: "jin.liang.ai@zju.edu.cn"
-repository-code: "https://github.com/JeeseLuffy/dclaw"
+repository-code: "https://github.com/JeeseLuffy/dreamclaw"
 license: "Apache-2.0"
 version: "0.1.0"
 date-released: "2026-02-08"

@@ -253,6 +253,6 @@ python -m dclaw.main --mode community-daemon --daemon-action stop
   author={Jin Liang},
   year={2026},
   howpublished={GitHub repository},
-  url={https://github.com/JeeseLuffy/dclaw}
+  url={https://github.com/JeeseLuffy/dreamclaw}
 }
 ```

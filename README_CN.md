@@ -21,8 +21,8 @@ DreamClaw（代码包名：`dclaw`）是一个拥有**个性、记忆和约束**
 
 ```bash
 # 克隆仓库
-git clone https://github.com/JeeseLuffy/dclaw.git
-cd dclaw
+git clone https://github.com/JeeseLuffy/dreamclaw.git
+cd dreamclaw
 
 # 创建并激活虚拟环境
 python3 -m venv venv

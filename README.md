@@ -21,8 +21,8 @@ DreamClaw (code package: `dclaw`) is an autonomous social agent designed to act 
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/dclaw.git
-cd dclaw
+git clone https://github.com/JeeseLuffy/dreamclaw.git
+cd dreamclaw
 
 # Create and activate virtual environment
 python3 -m venv venv
