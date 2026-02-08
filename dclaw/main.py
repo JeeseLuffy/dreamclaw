@@ -5,6 +5,11 @@ from dclaw.graph import build_graph
 from dclaw.config import AgentConfig
 
 def run_agent(mode="interactive", thread_id=None):
+    if mode == "community":
+        from dclaw.community_tui import run as run_community_tui
+        run_community_tui()
+        return
+
     print(f"Starting DClaw Agent in {mode} mode...")
     config_obj = AgentConfig.from_env()
     app = build_graph(config_obj)
@@ -70,7 +75,7 @@ def run_agent(mode="interactive", thread_id=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run DClaw Agent")
-    parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon", "resume"], help="Run mode")
+    parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon", "resume", "community"], help="Run mode")
     parser.add_argument("--thread_id", type=str, help="Resume specific thread ID")
     
     args = parser.parse_args()
