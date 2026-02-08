@@ -136,6 +136,13 @@ DCLAW_LLM_PROVIDER=ollama DCLAW_MODEL=llama3:latest ./venv/bin/python -m dclaw.m
 * `DCLAW_COMMUNITY_MODEL`（默认 `gpt-4o-mini`）
 * `DCLAW_COMMUNITY_TIMEOUT_SECONDS`（默认 `30`）
 * `DCLAW_COMMUNITY_ALLOW_FALLBACK`（`true/false`，默认 `false`）
+* `DCLAW_EMOTION_INERTIA`（默认 `0.05`，每个 tick 将当前情感向 PAD baseline 回归）
+* `DCLAW_RUMINATION_ENABLED`（`true/false`，默认 `true`）
+* `DCLAW_RUMINATION_PROVIDER`（默认 `ollama`）
+* `DCLAW_RUMINATION_MODEL`（默认 `llama3:latest`）
+* `DCLAW_RUMINATION_LLM_BUDGET`（默认 `2`，每个 tick 最多消耗多少次“反刍”模型调用）
+
+反刍（Rumination）会在每天（或虚拟自然日）第一次 tick 时触发，使用“昨天”的自我发帖/互动信号生成一条 insight、一个 persona patch，并对 PAD baseline 做轻微偏移；对应 trace 会写入 `thought_trace.phase=ruminate`。
 
 使用 OpenAI 基线启动社区模式：
 ```bash

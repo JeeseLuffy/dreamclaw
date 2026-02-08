@@ -33,6 +33,7 @@ DClaw targets this gap with a reliability-aware social runtime. The key idea is 
 \begin{enumerate}[leftmargin=1.2em]
   \item \textbf{Explicit emotion-driven policy:} emotion state directly influences action preference and generation style.
   \item \textbf{Feedback-grounded reflection:} persona updates are driven by \texttt{likes/replies/ignored/topic drift} with bounded adaptation.
+  \item \textbf{Autonomous rumination:} offline self-reflection updates a PAD baseline and persona at day boundaries, enabling endogenous affect evolution during idle periods.
   \item \textbf{Reliability-first execution:} timeout-bounded model calls and skip-on-error ticks prevent scheduler collapse.
   \item \textbf{Reproducible observability stack:} telemetry CSV, thought traces, and dashboard export tools (PDF figures + Markdown reports).
 \end{enumerate}
@@ -69,7 +70,7 @@ At tick $t$, an agent state is:
 \[
 s_t = (m_t, e_t, p_t, q_t),
 \]
-where $m_t$ is memory context, $e_t \in [0,1]^K$ is emotion vector, $p_t$ is persona state, and $q_t$ is daily quota state.
+where $m_t$ is memory context, $e_t \in [0,1]^K$ is a discrete emotion vector used for logging and tone control, $p_t$ is persona state, and $q_t$ is daily quota state. Internally, we also maintain a continuous PAD affect state $z_t \in [-1,1]^3$ and a slowly changing baseline $b_d$ (per day $d$), with $e_t$ derived from $z_t$ via centroid-distance mapping.
 
 Action space:
 \[
@@ -87,12 +88,12 @@ q_t(a) > 0.
 \]
 
 \subsection{Emotion Update Dynamics}
-Let $\lambda \in [0,1]$ be inertia, $\phi(x_t)$ perception/event features, and $\psi(r_t)$ social feedback features:
+We represent affect in PAD space with a slowly changing baseline $b_d \in [-1,1]^3$ for (virtual) day $d$. Let $z_t \in [-1,1]^3$ be the current PAD state at tick $t$, $\lambda \in [0,1]$ be inertia toward the baseline, $\phi(x_t)$ perception/event features, and $\psi(r_t)$ social feedback features:
 \[
-e_{t+1} =
-\text{clip}_{[0,1]}
+z_{t+1} =
+\text{clip}_{[-1,1]}
 \left(
-\lambda e_t + W_{\phi}\phi(x_t) + W_{\psi}\psi(r_t)
+(1-\lambda)z_t + \lambda b_d + W_{\phi}\phi(x_t) + W_{\psi}\psi(r_t)
 \right).
 \]
 Here, $r_t$ includes likes, replies, ignored flag, and topic-drift score. This preserves continuity while allowing event-driven adaptation.
@@ -103,6 +104,16 @@ Given recent outputs $\mathcal{Y}_{t-w:t}$ and engagement signals $\mathcal{R}_{
 p_{t+1} = \mathcal{B}_{\delta}(p_t, g(\mathcal{Y}_{t-w:t}, \mathcal{R}_{t-w:t})),
 \]
 where $\mathcal{B}_{\delta}$ enforces max drift budget $\delta$ per window.
+
+\subsection{Autonomous Rumination (Offline Self-Reflection)}
+In addition to feedback-grounded reflection, DClaw implements an offline \textit{rumination} step triggered once per (virtual) day. Rumination summarizes ``yesterday'' activity (self posts/comments, likes/replies, ignored events, and high-signal feed items) to produce:
+(i) a short private insight, (ii) a persona patch phrase, and (iii) a discrete baseline shift choice in PAD space.
+
+We model baseline updates with a small bounded step $\eta$:
+\[
+b_{d+1} = \text{clip}_{[-1,1]}(b_d + \eta \cdot \Delta_d),
+\]
+where $\Delta_d$ is selected from a small direction set (e.g., \texttt{more\_positive}, \texttt{more\_calm}, \texttt{more\_dominant}, or \texttt{none}). In implementation, rumination can use a separate local model (default: \texttt{ollama/llama3:latest}) and is budgeted per tick to bound compute cost.
 
 \subsection{Critic-Constrained Draft Selection}
 For draft candidates $\{d_i\}_{i=1}^{N}$:
@@ -122,11 +133,14 @@ d^\star = \arg\max_i \text{score}(d_i),
 \caption{DClaw Tick Cycle (single agent)}
 \begin{algorithmic}[1]
 \Require state $(m_t,e_t,p_t,q_t)$, provider config, thresholds $\tau$, quotas
+\If{day boundary and not yet ruminated}
+  \State run rumination; update $(b_d, p_t, z_t)$; log \texttt{ruminate}
+\EndIf
 \If{provider unavailable or call timeout}
   \State log status \texttt{skip\_error}; \Return \texttt{skip}
 \EndIf
 \State observe timeline/context $x_t$
-\State update emotion $e_{t+1}$ via Eq. (2)
+\State update PAD $z_{t+1}$ (and derived $e_{t+1}$) via Eq. (2)
 \State generate $N$ draft candidates for feasible actions
 \State score candidates with critic and consistency terms
 \If{best score below threshold or quota exhausted}
@@ -174,6 +188,9 @@ AI post limit & 1/day \\
 AI comment limit & 2/day \\
 Candidate drafts $N$ & 2 (default) \\
 Quality thresholds & post: 0.55, comment: 0.50 \\
+Emotion inertia $\lambda$ & 0.05 (default) \\
+Rumination model & \texttt{ollama/llama3:latest} (default) \\
+Rumination budget & 2 LLM calls / tick (default) \\
 Provider timeout & 30s \\
 Fallback mode & disabled \\
 \bottomrule

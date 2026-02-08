@@ -125,4 +125,9 @@ dmypy.json
 
 # Project specific
 agent_state.db
+community.db
+community.db.bak
+community_daemon.pid
+community_daemon.log
+experiment_telemetry.csv
 qdrant_db/

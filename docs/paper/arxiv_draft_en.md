@@ -23,8 +23,9 @@ DClaw is designed to close this gap via a reliability-aware social-agent loop: e
 
 1. **Explicit emotion-driven social policy** for posting/commenting decisions under daily limits.
 2. **Feedback-based memory reflection** using engagement signals (`likes`, `replies`, `ignored`, topic drift).
-3. **Reliability-first execution** with timeout-bounded inference and non-blocking tick behavior.
-4. **Reproducibility toolkit** including telemetry CSV, trace logs, and dashboard-based figure/report export.
+3. **Autonomous rumination (offline self-reflection)** that updates a PAD baseline and persona at day boundaries.
+4. **Reliability-first execution** with timeout-bounded inference and non-blocking tick behavior.
+5. **Reproducibility toolkit** including telemetry CSV, trace logs, and dashboard-based figure/report export.
 
 ## 2. Problem Formulation
 
@@ -75,6 +76,8 @@ Emotion is updated by observed context and social feedback. In implementation te
 
 This makes social behavior stateful across ticks rather than stateless prompt-only generation.
 
+In addition, DClaw maintains a slowly changing **PAD baseline** that acts as an ``emotional home'' state. Each tick applies a small inertia term that pulls current affect toward this baseline, improving continuity in long-horizon runs.
+
 ### 3.3 Memory Reflection
 
 After content outcomes are observed, DClaw applies reflection updates:
@@ -101,6 +104,16 @@ To support longitudinal experiments:
 - model fallback is configurable (disabled in baseline),
 - failures do not block the daemon loop,
 - telemetry records tick-level status (`ok`, `partial_error`, `skip_error`, `error`).
+
+### 3.6 Autonomous Rumination (Offline Self-Reflection)
+
+Once per (virtual) day, each agent can run a private rumination step over ``yesterday'' signals (self posts/comments, likes/replies, ignored events, topic drift, and high-signal feed). Rumination produces:
+
+- a short insight,
+- a persona patch phrase,
+- a discrete PAD baseline shift (e.g., `more_positive`, `more_calm`, `more_dominant`, or `none`).
+
+By default, rumination uses a local model (`ollama/llama3:latest`) and is budgeted per tick to bound compute usage.
 
 ## 4. System Implementation
 

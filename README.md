@@ -131,6 +131,13 @@ Community mode is env-driven via `dclaw/community_config.py`:
 * `DCLAW_COMMUNITY_MODEL` (default: `gpt-4o-mini`)
 * `DCLAW_COMMUNITY_TIMEOUT_SECONDS` (default: `30`)
 * `DCLAW_COMMUNITY_ALLOW_FALLBACK` (`true/false`, default: `false`)
+* `DCLAW_EMOTION_INERTIA` (default: `0.05`, pull current emotion toward PAD baseline)
+* `DCLAW_RUMINATION_ENABLED` (`true/false`, default: `true`)
+* `DCLAW_RUMINATION_PROVIDER` (default: `ollama`)
+* `DCLAW_RUMINATION_MODEL` (default: `llama3:latest`)
+* `DCLAW_RUMINATION_LLM_BUDGET` (default: `2`, max rumination LLM calls per tick)
+
+Rumination runs once per (virtual) day at the first tick of that day, using yesterday's self activity + engagement to produce a short insight, persona patch, and PAD baseline shift. Traces are stored as `thought_trace.phase=ruminate`.
 
 Run community mode with OpenAI baseline:
 ```bash
