@@ -90,6 +90,7 @@ class CommunityService:
         self.provider_cache: dict[tuple[str, str], Any] = {}
         self.provider_available: dict[tuple[str, str], bool] = {}
         self.provider_error = ""
+        self._rumination_llm_budget_remaining = 0
 
         self._resolve_provider(config.provider, config.model)
 
@@ -157,6 +158,378 @@ class CommunityService:
 
     def _fallback_provider_model(self) -> tuple[str, str]:
         return "ollama", "llama3:latest"
+
+    # ---------- Emotion baseline helpers ----------
+    def _pad_baseline_from_json(self, raw: str | None) -> list[float]:
+        if not raw:
+            return [0.0, 0.0, 0.0]
+        try:
+            data = json.loads(raw)
+            return [
+                float(data.get("p", 0.0)),
+                float(data.get("a", 0.0)),
+                float(data.get("d", 0.0)),
+            ]
+        except Exception:
+            return [0.0, 0.0, 0.0]
+
+    def _pad_baseline_to_json(self, pad: list[float]) -> str:
+        p, a, d = (pad + [0.0, 0.0, 0.0])[:3]
+        return json.dumps({"p": round(float(p), 4), "a": round(float(a), 4), "d": round(float(d), 4)})
+
+    def _clamp_pad(self, pad: list[float]) -> list[float]:
+        return [max(-1.0, min(1.0, float(v))) for v in (pad + [0.0, 0.0, 0.0])[:3]]
+
+    def _previous_day_key(self, day_key: str) -> str:
+        if self.config.virtual_day_seconds > 0 and day_key.startswith("vd-"):
+            try:
+                bucket = int(day_key.split("-", 1)[1])
+                return f"vd-{max(0, bucket - 1)}"
+            except Exception:
+                return day_key
+        try:
+            dt = datetime.strptime(day_key, "%Y-%m-%d").replace(tzinfo=self.timezone)
+            return self._day_key(dt - timedelta(days=1))
+        except Exception:
+            return day_key
+
+    def _apply_emotion_inertia(self, emotion_vector: dict[str, float], baseline_pad: list[float]) -> dict[str, float]:
+        factor = max(0.0, min(1.0, float(self.config.emotion_inertia)))
+        if factor <= 0.0:
+            return emotion_vector
+        engine = EmotionState(initial_state=emotion_vector)
+        current_pad = getattr(engine, "pad", [0.0, 0.0, 0.0])
+        target = self._clamp_pad(baseline_pad)
+        new_pad = [
+            float(current_pad[i]) + (target[i] - float(current_pad[i])) * factor
+            for i in range(3)
+        ]
+        engine.pad = self._clamp_pad(new_pad)
+        # Sync discrete emotion representation.
+        try:
+            engine._update_discrete_from_pad()
+        except Exception:
+            pass
+        return engine.get_state()
+
+    # ---------- Autonomous rumination ----------
+    def _rumination_snapshot(self, ai_account_id: int, day_key: str) -> dict[str, Any]:
+        self_items = self.db.fetchall(
+            """
+            SELECT
+                c.id, c.content_type, c.body, c.quality_score, c.created_at,
+                (SELECT COUNT(*) FROM interactions i WHERE i.content_id = c.id AND i.interaction_type = 'like') AS likes,
+                (SELECT COUNT(*) FROM content r WHERE r.parent_id = c.id) AS replies
+            FROM content c
+            WHERE c.ai_account_id = ? AND c.day_key = ?
+            ORDER BY c.id DESC
+            LIMIT 8
+            """,
+            (ai_account_id, day_key),
+        )
+        feed_items = self.db.fetchall(
+            """
+            SELECT
+                c.id, c.body, c.quality_score, c.created_at,
+                u.nickname, a.handle,
+                (SELECT COUNT(*) FROM interactions i WHERE i.content_id = c.id AND i.interaction_type = 'like') AS likes,
+                (SELECT COUNT(*) FROM content r WHERE r.parent_id = c.id) AS replies
+            FROM content c
+            LEFT JOIN users u ON c.author_user_id = u.id
+            LEFT JOIN ai_accounts a ON c.ai_account_id = a.id
+            WHERE c.day_key = ? AND c.content_type = 'post'
+            ORDER BY c.quality_score DESC, likes DESC, replies DESC, c.id DESC
+            LIMIT 6
+            """,
+            (day_key,),
+        )
+
+        self_list = [dict(row) for row in self_items]
+        feed_list = [dict(row) for row in feed_items]
+
+        likes_total = sum(int(item.get("likes") or 0) for item in self_list)
+        replies_total = sum(int(item.get("replies") or 0) for item in self_list)
+        ignored_total = sum(1 for item in self_list if (int(item.get("likes") or 0) + int(item.get("replies") or 0)) == 0)
+        avg_quality = (
+            sum(float(item.get("quality_score") or 0.0) for item in self_list) / len(self_list)
+            if self_list
+            else 0.0
+        )
+
+        return {
+            "self_items": self_list,
+            "feed_items": feed_list,
+            "summary": {
+                "self_count": len(self_list),
+                "likes": likes_total,
+                "replies": replies_total,
+                "ignored": ignored_total,
+                "avg_quality": round(avg_quality, 3),
+            },
+        }
+
+    def _extract_first_json_object(self, raw: str) -> dict[str, Any] | None:
+        if not raw:
+            return None
+        text = raw.strip()
+        if "```" in text:
+            text = text.replace("```json", "```").replace("```", "")
+        start = text.find("{")
+        end = text.rfind("}")
+        if start < 0 or end < 0 or end <= start:
+            return None
+        snippet = text[start : end + 1]
+        try:
+            return json.loads(snippet)
+        except Exception:
+            return None
+
+    def _parse_rumination_payload(self, raw: str) -> dict[str, str]:
+        payload = self._extract_first_json_object(raw) or {}
+        insight = str(payload.get("insight") or "").strip()
+        persona_patch = str(payload.get("persona_patch") or "").strip()
+        baseline_shift = str(payload.get("baseline_shift") or "none").strip().lower()
+        reflection_event = str(payload.get("reflection_event") or "none").strip().lower()
+
+        allowed_shift = {
+            "more_positive",
+            "more_negative",
+            "more_calm",
+            "more_aroused",
+            "more_dominant",
+            "more_submissive",
+            "none",
+        }
+        if baseline_shift not in allowed_shift:
+            baseline_shift = "none"
+
+        allowed_event = {"reflection_positive", "reflection_negative", "none"}
+        if reflection_event not in allowed_event:
+            reflection_event = "none"
+
+        if len(insight) > 320:
+            insight = insight[:317].rstrip() + "..."
+        if len(persona_patch) > 120:
+            persona_patch = persona_patch[:117].rstrip() + "..."
+
+        return {
+            "insight": insight,
+            "persona_patch": persona_patch,
+            "baseline_shift": baseline_shift,
+            "reflection_event": reflection_event,
+        }
+
+    def _apply_baseline_shift(self, baseline_pad: list[float], baseline_shift: str) -> list[float]:
+        step = 0.07
+        deltas = {
+            "more_positive": (step, 0.0, 0.0),
+            "more_negative": (-step, 0.0, 0.0),
+            "more_calm": (0.0, -step, 0.0),
+            "more_aroused": (0.0, step, 0.0),
+            "more_dominant": (0.0, 0.0, step),
+            "more_submissive": (0.0, 0.0, -step),
+            "none": (0.0, 0.0, 0.0),
+        }
+        dp, da, dd = deltas.get(baseline_shift, (0.0, 0.0, 0.0))
+        base = self._clamp_pad(baseline_pad)
+        shifted = [base[0] + dp, base[1] + da, base[2] + dd]
+        return self._clamp_pad(shifted)
+
+    def _maybe_run_rumination(
+        self,
+        ai: dict[str, Any],
+        persona: str,
+        emotion_vector: dict[str, float],
+        baseline_pad: list[float],
+        provider_for_fallback: str,
+        model_for_fallback: str,
+        day_key: str,
+        now_iso: str,
+    ) -> tuple[str, dict[str, float], list[float]]:
+        if not self.config.rumination_enabled:
+            return persona, emotion_vector, baseline_pad
+
+        last_key = str(ai.get("last_rumination_day_key") or "").strip()
+        if last_key == day_key:
+            return persona, emotion_vector, baseline_pad
+
+        prev_key = self._previous_day_key(day_key)
+        snapshot = self._rumination_snapshot(ai["id"], prev_key)
+        self_items: list[dict[str, Any]] = snapshot["self_items"]
+        feed_items: list[dict[str, Any]] = snapshot["feed_items"]
+        summary: dict[str, Any] = snapshot["summary"]
+
+        baseline_before = self._clamp_pad(baseline_pad)
+        baseline_after = baseline_before
+        used_llm = False
+        raw = ""
+
+        engine = EmotionState(initial_state=emotion_vector)
+        current_pad = list(getattr(engine, "pad", [0.0, 0.0, 0.0]))
+
+        # Decide whether to spend an LLM call budget on rumination.
+        can_use_llm = bool(self_items) and self._rumination_llm_budget_remaining > 0
+
+        payload = {
+            "insight": "",
+            "persona_patch": "",
+            "baseline_shift": "none",
+            "reflection_event": "none",
+        }
+
+        if can_use_llm:
+            used_llm = True
+            self._rumination_llm_budget_remaining -= 1
+
+            memory_lines: list[str] = []
+            for item in self_items[:6]:
+                memory_lines.append(
+                    f"SELF {item['content_type']} (likes={item.get('likes', 0)}, replies={item.get('replies', 0)}, q={float(item.get('quality_score') or 0.0):.2f}): "
+                    f"{str(item.get('body') or '')[:180]}"
+                )
+            for item in feed_items[:4]:
+                author = item.get("nickname") or item.get("handle") or "anon"
+                memory_lines.append(
+                    f"FEED post by {author} (likes={item.get('likes', 0)}, replies={item.get('replies', 0)}): "
+                    f"{str(item.get('body') or '')[:180]}"
+                )
+
+            system_prompt = (
+                "You are an autonomous social AI agent doing private rumination (self-reflection).\n"
+                "Return JSON only. No markdown, no extra text.\n"
+                "Schema:\n"
+                "{\n"
+                '  "insight": "1-2 sentences",\n'
+                '  "persona_patch": "a short phrase (<=12 words)",\n'
+                '  "baseline_shift": "one of: more_positive|more_negative|more_calm|more_aroused|more_dominant|more_submissive|none",\n'
+                '  "reflection_event": "one of: reflection_positive|reflection_negative|none"\n'
+                "}"
+            )
+            user_prompt = (
+                f"Current persona:\n{persona}\n\n"
+                f"Current PAD: P={current_pad[0]:.3f} A={current_pad[1]:.3f} D={current_pad[2]:.3f}\n"
+                f"Baseline PAD: P={baseline_before[0]:.3f} A={baseline_before[1]:.3f} D={baseline_before[2]:.3f}\n\n"
+                f"Yesterday key: {prev_key}\n"
+                f"Signals (self): count={summary.get('self_count', 0)}, likes={summary.get('likes', 0)}, replies={summary.get('replies', 0)}, ignored={summary.get('ignored', 0)}, avg_quality={summary.get('avg_quality', 0)}\n\n"
+                "Memory samples:\n"
+                + "\n".join(memory_lines[:10])
+            )
+
+            raw = self._safe_generate(
+                provider=self.config.rumination_provider,
+                model=self.config.rumination_model,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                temperature=0.2,
+                max_tokens=220,
+            )
+            payload = self._parse_rumination_payload(raw)
+            baseline_after = self._apply_baseline_shift(baseline_before, payload["baseline_shift"])
+
+            if payload["persona_patch"]:
+                persona = self._bounded_persona_update(persona, payload["persona_patch"], drift_cap=0.06)
+        else:
+            # Micro-rumination: no LLM call. Still decays emotion toward baseline.
+            pleasure = float(current_pad[0]) if current_pad else 0.0
+            if int(summary.get("ignored") or 0) > 0 or pleasure < -0.2:
+                payload["reflection_event"] = "reflection_negative"
+                payload["insight"] = "Quiet day; lingering disappointment fades during rest."
+            else:
+                payload["reflection_event"] = "reflection_positive"
+                payload["insight"] = "Quiet day; mood stabilizes and focus resets."
+
+        reflection_event = payload["reflection_event"]
+        if reflection_event in {"reflection_positive", "reflection_negative"}:
+            engine.update(reflection_event, intensity=0.75)
+
+        target = baseline_after
+        pad = list(getattr(engine, "pad", [0.0, 0.0, 0.0]))
+        pad = [pad[i] + (target[i] - pad[i]) * 0.35 for i in range(3)]
+        engine.pad = self._clamp_pad(pad)
+        try:
+            engine._update_discrete_from_pad()
+        except Exception:
+            pass
+        new_emotion = engine.get_state()
+
+        # Persist rumination state.
+        self.db.execute(
+            """
+            UPDATE ai_accounts
+            SET persona = ?, emotion_json = ?, pad_baseline_json = ?, last_rumination_day_key = ?, last_rumination_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                persona,
+                json.dumps(new_emotion),
+                self._pad_baseline_to_json(baseline_after),
+                day_key,
+                now_iso,
+                now_iso,
+                ai["id"],
+            ),
+        )
+        self.db.execute(
+            """
+            INSERT INTO emotion_history (ai_account_id, emotion_json, day_key, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (ai["id"], json.dumps(new_emotion), day_key, now_iso),
+        )
+
+        raw_to_store = raw.strip()
+        if len(raw_to_store) > 4000:
+            raw_to_store = raw_to_store[:3997] + "..."
+
+        self.db.execute(
+            """
+            INSERT INTO rumination_events (
+                ai_account_id, day_key, created_at,
+                baseline_before_json, baseline_after_json,
+                insight, persona_patch, raw_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(ai_account_id, day_key) DO UPDATE SET
+                created_at = excluded.created_at,
+                baseline_before_json = excluded.baseline_before_json,
+                baseline_after_json = excluded.baseline_after_json,
+                insight = excluded.insight,
+                persona_patch = excluded.persona_patch,
+                raw_json = excluded.raw_json
+            """,
+            (
+                ai["id"],
+                day_key,
+                now_iso,
+                self._pad_baseline_to_json(baseline_before),
+                self._pad_baseline_to_json(baseline_after),
+                payload.get("insight", ""),
+                payload.get("persona_patch", ""),
+                raw_to_store,
+            ),
+        )
+
+        self._trace(
+            ai["id"],
+            "ruminate",
+            "Autonomous rumination completed." if used_llm else "Micro-rumination completed.",
+            {
+                "used_llm": used_llm,
+                "provider": self.config.rumination_provider if used_llm else provider_for_fallback,
+                "model": self.config.rumination_model if used_llm else model_for_fallback,
+                "previous_day_key": prev_key,
+                "signals": summary,
+                "baseline_before": baseline_before,
+                "baseline_after": baseline_after,
+                "reflection_event": reflection_event,
+                "insight": payload.get("insight", ""),
+                "persona_patch": payload.get("persona_patch", ""),
+            },
+            day_key,
+            now_iso,
+        )
+
+        return persona, new_emotion, baseline_after
 
     def _safe_generate(
         self,
@@ -498,6 +871,8 @@ class CommunityService:
         if max_agents is not None:
             ai_accounts = ai_accounts[:max_agents]
 
+        self._rumination_llm_budget_remaining = max(0, int(self.config.rumination_llm_budget_per_tick))
+
         stats = {"processed": 0, "posted": 0, "commented": 0, "skipped": 0, "errored": 0}
         for ai in ai_accounts:
             try:
@@ -542,6 +917,29 @@ class CommunityService:
         provider = (ai.get("provider") or self.config.provider).lower()
         model = ai.get("model") or self.config.model
         current_emotion = json.loads(ai["emotion_json"])
+        baseline_pad = self._pad_baseline_from_json(ai.get("pad_baseline_json"))
+
+        persona, current_emotion = self._apply_feedback_learning(
+            ai_account_id=ai_id,
+            persona=persona,
+            emotion_vector=current_emotion,
+            provider=provider,
+            model=model,
+        )
+
+        persona, current_emotion, baseline_pad = self._maybe_run_rumination(
+            ai=ai,
+            persona=persona,
+            emotion_vector=current_emotion,
+            baseline_pad=baseline_pad,
+            provider_for_fallback=provider,
+            model_for_fallback=model,
+            day_key=day_key,
+            now_iso=now_iso,
+        )
+
+        current_emotion = self._apply_emotion_inertia(current_emotion, baseline_pad)
+
         if self._resolve_provider(provider, model) is None:
             self._trace(
                 ai_id,
@@ -553,14 +951,6 @@ class CommunityService:
             )
             self._save_ai_state(ai_id, persona, current_emotion)
             return "skip"
-
-        persona, current_emotion = self._apply_feedback_learning(
-            ai_account_id=ai_id,
-            persona=persona,
-            emotion_vector=current_emotion,
-            provider=provider,
-            model=model,
-        )
         emotion_engine = EmotionState(current_emotion)
         tone = emotion_engine.get_generation_params()["tone"]
 

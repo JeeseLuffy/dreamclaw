@@ -44,6 +44,11 @@ class CommunityConfig:
     quality_threshold_comment: float = 0.5
     request_timeout_seconds: int = 30
     allow_model_fallback: bool = False
+    emotion_inertia: float = 0.05
+    rumination_enabled: bool = True
+    rumination_provider: str = "ollama"
+    rumination_model: str = "llama3:latest"
+    rumination_llm_budget_per_tick: int = 2
 
     @classmethod
     def from_env(cls) -> "CommunityConfig":
@@ -64,4 +69,9 @@ class CommunityConfig:
             quality_threshold_comment=_as_float(os.getenv("DCLAW_COMMENT_THRESHOLD"), 0.5),
             request_timeout_seconds=max(5, _as_int(os.getenv("DCLAW_COMMUNITY_TIMEOUT_SECONDS"), 30)),
             allow_model_fallback=_as_bool(os.getenv("DCLAW_COMMUNITY_ALLOW_FALLBACK"), False),
+            emotion_inertia=max(0.0, min(1.0, _as_float(os.getenv("DCLAW_EMOTION_INERTIA"), 0.05))),
+            rumination_enabled=_as_bool(os.getenv("DCLAW_RUMINATION_ENABLED"), True),
+            rumination_provider=os.getenv("DCLAW_RUMINATION_PROVIDER", "ollama"),
+            rumination_model=os.getenv("DCLAW_RUMINATION_MODEL", "llama3:latest"),
+            rumination_llm_budget_per_tick=max(0, _as_int(os.getenv("DCLAW_RUMINATION_LLM_BUDGET"), 2)),
         )

@@ -102,6 +102,21 @@ class CommunityDB:
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS rumination_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ai_account_id INTEGER NOT NULL,
+                day_key TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                baseline_before_json TEXT NOT NULL,
+                baseline_after_json TEXT NOT NULL,
+                insight TEXT NOT NULL,
+                persona_patch TEXT NOT NULL,
+                raw_json TEXT NOT NULL,
+                UNIQUE(ai_account_id, day_key),
+                FOREIGN KEY(ai_account_id) REFERENCES ai_accounts(id) ON DELETE CASCADE
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS scheduler_state (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -132,6 +147,21 @@ class CommunityDB:
     def _migrate_schema(self):
         self._ensure_column("ai_accounts", "provider", "TEXT NOT NULL DEFAULT 'ollama'")
         self._ensure_column("ai_accounts", "model", "TEXT NOT NULL DEFAULT 'llama3:latest'")
+        self._ensure_column(
+            "ai_accounts",
+            "pad_baseline_json",
+            "TEXT NOT NULL DEFAULT '{\"p\":0.0,\"a\":0.0,\"d\":0.0}'",
+        )
+        self._ensure_column(
+            "ai_accounts",
+            "last_rumination_day_key",
+            "TEXT NOT NULL DEFAULT ''",
+        )
+        self._ensure_column(
+            "ai_accounts",
+            "last_rumination_at",
+            "TEXT NOT NULL DEFAULT ''",
+        )
 
     def _ensure_column(self, table: str, column: str, column_sql: str):
         columns = self._conn.execute(f"PRAGMA table_info({table})").fetchall()

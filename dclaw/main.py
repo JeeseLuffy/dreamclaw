@@ -1,8 +1,10 @@
 import uuid
 import time
 import argparse
-from dclaw.graph import build_graph
+from dclaw.graph import build_graph, AgentRuntime
 from dclaw.config import AgentConfig
+from dclaw.rumination import RuminationEngine
+from dclaw.emotion import EmotionState
 
 def run_agent(mode="interactive", thread_id=None):
     if mode == "community-dashboard":
@@ -59,6 +61,9 @@ def run_agent(mode="interactive", thread_id=None):
         "post_history": [],
         "memory_context": [],
         "next_step": None,
+        "last_rumination_time": time.time(),
+        "insight_history": [],
+        "baseline_pad": [0.0, 0.0, 0.0]
     }
 
     try:
@@ -77,18 +82,62 @@ def run_agent(mode="interactive", thread_id=None):
         # langgraph's app.stream(None, config) resumes.
         
         if mode == "daemon":
+            # Initialize Rumination Engine
+            # We need access to runtime memory/emotion from the app context, 
+            # but LangGraph hides runtime. simpler to instantiate a dedicated engine here 
+            # sharing the same DB if possible, or just mock for now since Runtime isn't easily accessible from 'app'.
+            # A better design would be to expose runtime from build_graph or use a global singleton.
+            # For this MVP, we will re-instantiate a runtime helper or just pass the state's memory if we could.
+            # Actually, let's just make a standalone engine that we MANUALLY feed state to/from.
+            
+            # Re-create runtime components for access (Not ideal but works for MVP without refactoring graph.py)
+            runtime = AgentRuntime(config_obj) 
+            rumination_engine = RuminationEngine(runtime.memory_system, EmotionState())
+
+            state = initial_state # Keep track of local state for rumination
+            
             while True:
                 print(f"\n[{time.strftime('%X')}] Waking up agent...")
-                for event in app.stream(initial_state if inputs else None, config=config):
+                
+                # 1. Run standard Graph Cycle
+                events_occurred = False
+                for event in app.stream(state if inputs else None, config=config):
+                    events_occurred = True
                     for node, values in event.items():
                         print(f"Processed Node: {node}")
+                        # Update local state tracking
+                        if isinstance(values, dict):
+                            state.update(values)
+                
+                # 2. Check for Rumination Opportunity (Idle time)
+                # If we just finished a cycle, we might want to sleep. 
+                # If we have been idle for X seconds, trigger rumination.
+                # For demo: force rumination if no major external events or just every loop
+                
+                last_rum = state.get("last_rumination_time", 0)
+                if time.time() - last_rum > 30: # Mock 30s idle time
+                     print("--- [Rumination] User idle. Entering internal thought... ---")
+                     # Sync engine with current state
+                     rumination_engine.emotion_engine.discrete_vector = state.get("emotion_vector", {})
+                     rumination_engine.emotion_engine.pad = state.get("baseline_pad", [0,0,0]) # or current calculated PAD
+                     
+                     # Get recent memories (mock or from state)
+                     recent_mems = state.get("memory_context", []) or ["Nothing special happened."]
+                     
+                     result = rumination_engine.run_rumination_cycle(recent_mems)
+                     
+                     if result["status"] == "success":
+                         print(f"--- [Rumination] Insight: {result['insight']}")
+                         print(f"--- [Rumination] New Baseline PAD: {result['new_pad_baseline']}")
+                         
+                         # Update State
+                         state["last_rumination_time"] = time.time()
+                         state["baseline_pad"] = result["new_pad_baseline"]
+                         # In a real app we'd save this back to checkpointer
                 
                 print(f"[{time.strftime('%X')}] Sleeping for 10 seconds...")
                 time.sleep(10)
-                inputs = None # subsequent runs resume? 
-                # Actually, cyclic graph ends at 'post' -> END. 
-                # So next loop starts fresh but with persisted state if we handle it.
-                # Here we arguably want start a NEW cycle.
+                inputs = None 
                 
         else:
              for event in app.stream(initial_state, config=config):

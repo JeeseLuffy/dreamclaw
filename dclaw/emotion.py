@@ -29,7 +29,15 @@ class EmotionState:
             "Fatigue": 0.0, "Anxiety": 0.2, "Frustration": 0.1
         }
         if initial_state:
-            self.discrete_vector.update(initial_state)
+            for key, value in initial_state.items():
+                if key in self.discrete_vector:
+                    try:
+                        self.discrete_vector[key] = float(value)
+                    except (TypeError, ValueError):
+                        continue
+
+        for key, value in list(self.discrete_vector.items()):
+            self.discrete_vector[key] = max(0.0, min(1.0, float(value)))
             
         # Initialize PAD state (Pleasure, Arousal, Dominance)
         # If not provided, derive from discrete vector
