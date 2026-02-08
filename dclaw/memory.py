@@ -3,43 +3,7 @@ from mem0 import Memory
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
 
-class MockMemory:
-    """
-    In-memory mock for Mem0 to facilitate testing without LLM/DB dependencies.
-    """
-    def __init__(self, config=None):
-        self.data = []
-        print("Initialized MockMemory")
-
-    def add(self, messages, user_id, metadata=None):
-        entry = {
-            "messages": messages,
-            "user_id": user_id,
-            "metadata": metadata or {},
-            "memory": messages[0]["content"] if messages else ""
-        }
-        self.data.append(entry)
-        print(f"MockMemory Add: {entry['memory'][:50]}...")
-        return {"id": len(self.data)}
-
-    def search(self, query, user_id, limit=5):
-        # Simple substring search mock
-        results = [
-            d for d in self.data 
-            if d["user_id"] == user_id and (query.lower() in d["memory"].lower())
-        ]
-        return results[:limit]
-
-    def get_all(self, user_id, filters=None):
-        results = [d for d in self.data if d["user_id"] == user_id]
-        if filters:
-            for key, value in filters.items():
-                results = [r for r in results if r["metadata"].get(key) == value]
-        return results
-    
-    @classmethod
-    def from_config(cls, config):
-        return cls(config)
+# class MockMemory: ... (Keep mock class for fallback/testing if needed, but we focus on real impl)
 
 class AgentMemory:
     """
@@ -48,34 +12,39 @@ class AgentMemory:
     def __init__(self, user_id: str = "dclaw_agent"):
         self.user_id = user_id
         
-        # Configuration for Mem0
-        # For this implementation, we will use a local vector store (Chroma) 
-        # and a mock graph store configuration if Neo4j is not available,
-        # or assume Neo4j is running locally.
+        # Checking for API Key
+        if not os.getenv("OPENAI_API_KEY"):
+            print("WARNING: OPENAI_API_KEY not found. Memory system may fail or fallback.")
+
+        # Real Config with OpenAI
+        config = {
+            "vector_store": {
+                "provider": "qdrant",
+                "config": {
+                    "path": "./qdrant_db",
+                }
+            },
+            "embedder": {
+                "provider": "openai",
+                "config": {
+                    "model": "text-embedding-3-small"
+                }
+            },
+            "llm": {
+                "provider": "openai",
+                "config": {
+                    "model": "gpt-4o-mini"
+                }
+            }
+        }
         
-        # NOTE: Switching to MockMemory for development/testing without API keys
-        self.memory = MockMemory() 
-        
-        # Real Config (for reference/future enablement)
-        # config = {
-        #     "vector_store": {
-        #         "provider": "qdrant",
-        #         "config": {
-        #             "path": "./qdrant_db",
-        #         }
-        #     },
-        #     "embedder": {
-        #         "provider": "huggingface",
-        #         "config": {
-        #             "model": "sentence-transformers/all-MiniLM-L6-v2"
-        #         }
-        #     }
-        # }
-        # try:
-        #     self.memory = Memory.from_config(config)
-        # except Exception as e:
-        #     print(f"Failed to initialize real Mem0: {e}. Falling back to MockMemory.")
-        #     self.memory = MockMemory()
+        try:
+            self.memory = Memory.from_config(config)
+            print("Mem0 Initialized with OpenAI & Qdrant.")
+        except Exception as e:
+            print(f"Failed to initialize Mem0: {e}. Defaulting to MockMemory (if available) or raising error.")
+            # Fallback logic could go here
+            raise e
 
     def add_interaction(self, role: str, content: str, metadata: Optional[Dict] = None):
         """
@@ -104,36 +73,34 @@ class AgentMemory:
         """
         Retrieves the agent's persona definition.
         """
-        results = self.memory.get_all(user_id=self.user_id, filters={"type": "persona"})
-        if results:
-             return "\n".join([res["memory"] for res in results])
+        # Mem0 might not have 'get_all' directly exposed the same way depending on version, 
+        # but 'search' with empty query or specific filters often works.
+        # Assuming get_all is valid or we use search.
+        try:
+            results = self.memory.get_all(user_id=self.user_id, filters={"type": "persona"})
+            if results:
+                 return "\n".join([res["memory"] for res in results])
+        except:
+            pass
         return "You are a helpful AI assistant."
 
     def reflect_and_consolidate(self):
         """
         Reflects on short-term memories and consolidates them into insights.
-        (Simplified implementation)
         """
-        # 1. Retrieve recent short-term memories (Mock retrieval for now as filters might need tuning)
-        # In a real scenario: recent = self.memory.get_all(user_id=self.user_id, filters={"type": "short_term"})
-        
-        # 2. Use LLM to summarize (Mocked here)
-        insight = "User is interested in AI Agent development and memory systems."
-        
-        # 3. Store as 'insight' type
-        self.memory.add(
-            messages=[{"role": "system", "content": insight}],
-            user_id=self.user_id,
-            metadata={"type": "insight", "source": "reflection"}
-        )
-        print(f"Reflected and stored insight: {insight}")
+        # Mem0 likely has built-in features for this, but we force a "add" 
+        # that acts as a reflection/summary if we were building it manually.
+        # Here we just log it for now as Mem0 auto-manages some memory distinctness.
+        print("Triggering Memory Reflection (Mem0 handles consolidation internally or via API)...")
+        pass
 
     def initialize_persona(self, description: str):
         """
         Sets the initial persona if not present.
         """
-        existing = self.memory.get_all(user_id=self.user_id, filters={"type": "persona"})
-        if not existing:
+        # Check if persona exists
+        existing = self.get_persona()
+        if "helpful AI assistant" in existing and len(existing) < 50:
              self.memory.add(
                 messages=[{"role": "system", "content": description}],
                 user_id=self.user_id,

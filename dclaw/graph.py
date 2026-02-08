@@ -3,6 +3,8 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 from typing import TypedDict, Annotated, List
 import sqlite3
 import os
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
 from .state import AgentState
 from .memory import AgentMemory
 from .emotion import EmotionState
@@ -14,6 +16,7 @@ memory_system = AgentMemory()
 critic_system = ContentCritic()
 daily_constraint = DailyConstraint(max_posts=5) # increased for testing
 perception_layer = PerceptionLayer()
+llm = ChatOpenAI(model="gpt-4o-mini")
 
 def perception_node(state: AgentState):
     """
@@ -64,11 +67,32 @@ def draft_node(state: AgentState):
     # Retrieve relevant context from memory
     query = "AI agents social media"
     memory_context = memory_system.search_memory(query)
+    context_str = "\n".join(memory_context) if memory_context else "general AI trends"
     
-    # Mock LLM generation
-    topic = memory_context[0] if memory_context else "general AI trends"
-    tone = params["tone"]
-    draft = f"Just read about {topic[:30]}... I'm feeling {tone} about the future of autonomous agents! #AI #dclaw"
+    # LLM Generation
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", "You are DClaw, a social AI agent. Your persona is: {persona}. \n"
+                   "Current state of mind: {tone}. Creativity level (temperature): {temperature}. \n"
+                   "Draft a short social media post (under 280 chars) based on the context below."),
+        ("user", "Context: {context}")
+    ])
+    
+    persona = memory_system.get_persona()
+    chain = prompt | llm
+    
+    try:
+        response = chain.invoke({
+            "persona": persona,
+            "tone": params["tone"],
+            "temperature": params["temperature"],
+            "context": context_str
+        })
+        draft = response.content
+    except Exception as e:
+        print(f"LLM generation failed: {e}. Using fallback.")
+        draft = f"Just read about {context_str[:20]}... I'm feeling {params['tone']}! #AI #dclaw"
+    
+    print(f"Generated Draft: {draft}")
     
     return {"draft_content": draft, "memory_context": memory_context}
 
