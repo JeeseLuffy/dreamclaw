@@ -3,55 +3,104 @@ import signal
 import subprocess
 import sys
 import time
+import csv
+import json
 from pathlib import Path
+from datetime import datetime
 
 from dclaw.community_config import CommunityConfig
 from dclaw.community_service import CommunityService
+from dclaw.emotion import EmotionState
 
-
-import csv
-import json
-from datetime import datetime
 
 PID_FILE = Path("community_daemon.pid")
 LOG_FILE = Path("community_daemon.log")
 TELEMETRY_FILE = Path("experiment_telemetry.csv")
 
-def _init_telemetry():
-    if not TELEMETRY_FILE.exists():
-        with open(TELEMETRY_FILE, "w", newline="") as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "timestamp", "agent_handle", 
-                "pad_p", "pad_a", "pad_d",
-                "joy", "curiosity", "excitement", "fatigue", "anxiety", "frustration"
-            ])
+def _telemetry_headers() -> list[str]:
+    return [
+        "timestamp",
+        "tick_id",
+        "tick_status",
+        "error_type",
+        "error_message",
+        "processed",
+        "posted",
+        "commented",
+        "skipped",
+        "errored",
+        "agent_handle",
+        "pad_p",
+        "pad_a",
+        "pad_d",
+        "joy",
+        "curiosity",
+        "excitement",
+        "fatigue",
+        "anxiety",
+        "frustration",
+    ]
 
-def _log_telemetry(service: CommunityService):
+
+def _init_telemetry():
+    headers = _telemetry_headers()
+    if TELEMETRY_FILE.exists():
+        try:
+            first_line = TELEMETRY_FILE.read_text().splitlines()[0].strip()
+            if first_line == ",".join(headers):
+                return
+            backup = TELEMETRY_FILE.with_name(
+                f"{TELEMETRY_FILE.stem}.legacy-{int(time.time())}{TELEMETRY_FILE.suffix}"
+            )
+            TELEMETRY_FILE.rename(backup)
+        except Exception:
+            pass
+
+    with open(TELEMETRY_FILE, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+
+
+def _log_telemetry(
+    service: CommunityService,
+    tick_id: int,
+    tick_status: str,
+    error_type: str,
+    error_message: str,
+    stats: dict[str, int],
+):
     try:
         rows = service.db.fetchall("SELECT handle, emotion_json FROM ai_accounts")
         timestamp = datetime.now().isoformat()
-        
+
         with open(TELEMETRY_FILE, "a", newline="") as f:
             writer = csv.writer(f)
             for row in rows:
                 emotion = json.loads(row["emotion_json"])
-                # Handle both PAD-aware and legacy emotion vectors
-                # If PAD is missing, calculate it (lazy approximation or just 0s if not supported)
-                # But since we updated EmotionState, we can instantiate it to get PAD
-                from dclaw.emotion import EmotionState
                 es = EmotionState(initial_state=emotion)
-                # Access private member .pad directly or use a getter if available?
-                # I added .pad attribute in step 490.
-                p, a, d = getattr(es, 'pad', [0.0, 0.0, 0.0])
-                
+                p, a, d = getattr(es, "pad", [0.0, 0.0, 0.0])
+
                 writer.writerow([
-                    timestamp, row["handle"],
-                    f"{p:.3f}", f"{a:.3f}", f"{d:.3f}",
-                    f"{emotion.get('Joy',0):.3f}", f"{emotion.get('Curiosity',0):.3f}",
-                    f"{emotion.get('Excitement',0):.3f}",
-                    f"{emotion.get('Fatigue',0):.3f}", f"{emotion.get('Anxiety',0):.3f}",
-                    f"{emotion.get('Frustration',0):.3f}"
+                    timestamp,
+                    tick_id,
+                    tick_status,
+                    error_type,
+                    error_message[:400],
+                    stats.get("processed", 0),
+                    stats.get("posted", 0),
+                    stats.get("commented", 0),
+                    stats.get("skipped", 0),
+                    stats.get("errored", 0),
+                    row["handle"],
+                    f"{p:.3f}",
+                    f"{a:.3f}",
+                    f"{d:.3f}",
+                    f"{emotion.get('Joy', 0):.3f}",
+                    f"{emotion.get('Curiosity', 0):.3f}",
+                    f"{emotion.get('Excitement', 0):.3f}",
+                    f"{emotion.get('Fatigue', 0):.3f}",
+                    f"{emotion.get('Anxiety', 0):.3f}",
+                    f"{emotion.get('Frustration', 0):.3f}",
                 ])
     except Exception as e:
         print(f"[telemetry error] {e}", file=sys.stderr)
@@ -139,19 +188,45 @@ def run_daemon_loop(config: CommunityConfig):
     PID_FILE.write_text(str(os.getpid()))
     service = CommunityService(config)
     interval = config.scheduler_interval_seconds
-    
-    # Initialize telemetry in the daemon process too
+
     _init_telemetry()
-    
+    tick_id = 0
+
     while True:
-        stats = service.run_ai_tick()
-        
-        # Log telemetry every tick
-        _log_telemetry(service)
-        
+        tick_id += 1
+        tick_status = "ok"
+        error_type = ""
+        error_message = ""
+        stats = {"processed": 0, "posted": 0, "commented": 0, "skipped": 0, "errored": 0}
+
+        try:
+            stats = service.run_ai_tick()
+            if stats.get("errored", 0) > 0:
+                tick_status = "partial_error"
+                error_type = "CycleError"
+            elif stats.get("processed", 0) == stats.get("skipped", 0) and service.provider_error:
+                tick_status = "skip_error"
+                error_type = "ProviderUnavailable"
+                error_message = service.provider_error
+        except Exception as exc:
+            tick_status = "error"
+            error_type = exc.__class__.__name__
+            error_message = str(exc)
+            stats = {"processed": 0, "posted": 0, "commented": 0, "skipped": 0, "errored": 1}
+            print(f"[daemon] tick failed: {error_type}: {error_message}", file=sys.stderr, flush=True)
+
+        _log_telemetry(
+            service=service,
+            tick_id=tick_id,
+            tick_status=tick_status,
+            error_type=error_type,
+            error_message=error_message,
+            stats=stats,
+        )
+
         print(
-            f"[daemon] tick processed={stats['processed']} posted={stats['posted']} "
-            f"commented={stats['commented']} skipped={stats['skipped']}",
+            f"[daemon] tick={tick_id} status={tick_status} processed={stats['processed']} "
+            f"posted={stats['posted']} commented={stats['commented']} skipped={stats['skipped']}",
             flush=True,
         )
         time.sleep(interval)

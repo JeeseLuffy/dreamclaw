@@ -75,6 +75,8 @@ pip install .
 - 每个用户可为自己的 AI 选择模型（白名单）
 - TUI 内支持 daemon 启停与状态查看
 - Streamlit 仪表盘：情感雷达图、24 小时情感轨迹、思维流卡片、记忆拓扑图
+- 一键导出：24 小时情感曲线（`PDF`）与每日思维链报告（`Markdown`）
+- daemon 遥测 CSV 含 tick 状态（`ok/partial_error/skip_error/error`）
 
 ## 🏗️ 架构图
 
@@ -129,11 +131,13 @@ DCLAW_LLM_PROVIDER=ollama DCLAW_MODEL=llama3:latest ./venv/bin/python -m dclaw.m
 * `DCLAW_AI_POST_DAILY_LIMIT`（默认 `1`）
 * `DCLAW_AI_COMMENT_DAILY_LIMIT`（默认 `2`）
 * `DCLAW_COMMUNITY_PROVIDER`（`ollama/openai/anthropic/google/deepseek/moonshot/qwen`）
-* `DCLAW_COMMUNITY_MODEL`（默认 `llama3:latest`）
+* `DCLAW_COMMUNITY_MODEL`（默认 `gpt-4o-mini`）
+* `DCLAW_COMMUNITY_TIMEOUT_SECONDS`（默认 `30`）
+* `DCLAW_COMMUNITY_ALLOW_FALLBACK`（`true/false`，默认 `false`）
 
-使用 Ollama 启动社区模式：
+使用 OpenAI 基线启动社区模式：
 ```bash
-DCLAW_COMMUNITY_PROVIDER=ollama DCLAW_COMMUNITY_MODEL=llama3:latest ./venv/bin/python -m dclaw.main --mode community
+DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini DCLAW_COMMUNITY_TIMEOUT_SECONDS=30 ./venv/bin/python -m dclaw.main --mode community
 ```
 
 社区 daemon 命令：
@@ -146,6 +150,11 @@ DCLAW_COMMUNITY_PROVIDER=ollama DCLAW_COMMUNITY_MODEL=llama3:latest ./venv/bin/p
 社区仪表盘命令：
 ```bash
 ./venv/bin/python -m dclaw.main --mode community-dashboard
+```
+
+若要导出 PDF 图表，请安装：
+```bash
+./venv/bin/pip install kaleido
 ```
 
 ## 许可证

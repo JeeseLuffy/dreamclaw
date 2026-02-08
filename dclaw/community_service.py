@@ -128,7 +128,11 @@ class CommunityService:
         if key in self.provider_cache:
             return self.provider_cache[key]
         try:
-            instance = build_provider(provider, model)
+            instance = build_provider(
+                provider,
+                model,
+                timeout_seconds=self.config.request_timeout_seconds,
+            )
             self.provider_cache[key] = instance
             self.provider_available[key] = True
             return instance
@@ -161,7 +165,7 @@ class CommunityService:
         max_tokens: int = 180,
     ) -> str:
         resolved = self._resolve_provider(provider, model)
-        if resolved is None:
+        if resolved is None and self.config.allow_model_fallback:
             fallback_provider, fallback_model = self._fallback_provider_model()
             if (provider.lower(), model) != (fallback_provider, fallback_model):
                 resolved = self._resolve_provider(fallback_provider, fallback_model)
@@ -176,6 +180,7 @@ class CommunityService:
                     user_prompt=user_prompt,
                     temperature=temperature,
                     max_tokens=max_tokens,
+                    timeout_seconds=self.config.request_timeout_seconds,
                 )
             )
         except Exception as exc:
@@ -485,9 +490,23 @@ class CommunityService:
         if max_agents is not None:
             ai_accounts = ai_accounts[:max_agents]
 
-        stats = {"processed": 0, "posted": 0, "commented": 0, "skipped": 0}
+        stats = {"processed": 0, "posted": 0, "commented": 0, "skipped": 0, "errored": 0}
         for ai in ai_accounts:
-            action = self._run_one_ai_cycle(ai)
+            try:
+                action = self._run_one_ai_cycle(ai)
+            except Exception as exc:
+                action = "skip"
+                stats["errored"] += 1
+                error_summary = f"{exc.__class__.__name__}: {exc}"
+                self.provider_error = error_summary
+                self._trace(
+                    ai["id"],
+                    "error",
+                    "Cycle failed; skipped this tick.",
+                    {"error": error_summary},
+                    self._day_key(),
+                    self._iso_now(),
+                )
             stats["processed"] += 1
             if action == "post":
                 stats["posted"] += 1
@@ -515,6 +534,18 @@ class CommunityService:
         provider = (ai.get("provider") or self.config.provider).lower()
         model = ai.get("model") or self.config.model
         current_emotion = json.loads(ai["emotion_json"])
+        if self._resolve_provider(provider, model) is None:
+            self._trace(
+                ai_id,
+                "decide",
+                "Skipped action: model unavailable.",
+                {"provider": provider, "model": model, "provider_error": self.provider_error},
+                day_key,
+                now_iso,
+            )
+            self._save_ai_state(ai_id, persona, current_emotion)
+            return "skip"
+
         persona, current_emotion = self._apply_feedback_learning(
             ai_account_id=ai_id,
             persona=persona,
@@ -579,19 +610,31 @@ class CommunityService:
 
         drafts = []
         for index in range(self.config.candidate_drafts):
-            drafts.append(
-                self._generate_ai_candidate(
-                    ai_handle=ai["handle"],
-                    persona=persona,
-                    tone=tone,
-                    action=action,
-                    context_lines=context_lines,
-                    seed=index + 1,
-                    target_excerpt=target_excerpt,
-                    provider=provider,
-                    model=model,
-                )
+            candidate = self._generate_ai_candidate(
+                ai_handle=ai["handle"],
+                persona=persona,
+                tone=tone,
+                action=action,
+                context_lines=context_lines,
+                seed=index + 1,
+                target_excerpt=target_excerpt,
+                provider=provider,
+                model=model,
             )
+            if candidate.strip():
+                drafts.append(candidate.strip())
+
+        if not drafts:
+            self._trace(
+                ai_id,
+                "decide",
+                "Skipped action: generation unavailable or timed out.",
+                {"provider": provider, "model": model, "provider_error": self.provider_error},
+                day_key,
+                now_iso,
+            )
+            self._save_ai_state(ai_id, persona, new_emotion)
+            return "skip"
 
         self._trace(
             ai_id,
@@ -722,11 +765,7 @@ class CommunityService:
         )
         if generated:
             return generated.strip().replace("\n", " ")[:280]
-
-        fallback = f"[{tone}] {context_lines[0] if context_lines else 'Sharing a quick thought.'}"
-        if action == "comment":
-            fallback = f"[{tone}] Good point. I’d add: {target_excerpt[:80]}"
-        return fallback[:280]
+        return ""
 
     def _score_candidate(
         self,

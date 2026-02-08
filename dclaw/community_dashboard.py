@@ -10,6 +10,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 import plotly.graph_objects as go
+import plotly.io as pio
 import streamlit as st
 
 from dclaw.community_config import CommunityConfig
@@ -221,7 +222,100 @@ def _render_status_header(service: CommunityService, config: CommunityConfig, ai
     )
 
 
-def _render_emotion_panel(service: CommunityService, config: CommunityConfig, ai: dict[str, Any]):
+def _build_emotion_trajectory_figure(
+    service: CommunityService,
+    config: CommunityConfig,
+    ai: dict[str, Any],
+    labels: list[str],
+) -> go.Figure | None:
+    since_iso = (datetime.now(ZoneInfo(config.timezone)) - timedelta(hours=24)).isoformat()
+    series = _load_emotion_series(service, ai["id"], since_iso)
+    if not series:
+        return None
+
+    line_fig = go.Figure()
+    timestamps = [entry["created_at"] for entry in series]
+    for key in labels:
+        line_fig.add_trace(
+            go.Scatter(
+                x=timestamps,
+                y=[entry["emotion"].get(key, 0.0) for entry in series],
+                mode="lines",
+                name=key,
+            )
+        )
+    line_fig.update_layout(
+        margin=dict(l=20, r=20, t=20, b=20),
+        height=300,
+        yaxis=dict(range=[0, 1], title="Emotion Value"),
+        xaxis_title="Time",
+    )
+    return line_fig
+
+
+def _build_daily_trace_markdown(service: CommunityService, config: CommunityConfig, ai: dict[str, Any]) -> str:
+    now_local = datetime.now(ZoneInfo(config.timezone))
+    day_key = now_local.strftime("%Y-%m-%d")
+    ai_quota = _load_ai_quota(service, ai["id"], day_key)
+    try:
+        emotion = json.loads(ai.get("emotion_json") or "{}")
+    except Exception:
+        emotion = {}
+    dominant_emotion = "N/A"
+    dominant_value = 0.0
+    if emotion:
+        dominant_emotion, dominant_value = max(emotion.items(), key=lambda item: item[1])
+
+    quality_row = service.db.fetchone(
+        """
+        SELECT
+            AVG(quality_score) AS avg_quality,
+            AVG(persona_score) AS avg_persona,
+            AVG(emotion_score) AS avg_emotion
+        FROM content
+        WHERE ai_account_id = ? AND day_key = ?
+        """,
+        (ai["id"], day_key),
+    )
+    traces = service.db.fetchall(
+        """
+        SELECT phase, summary, created_at
+        FROM thought_trace
+        WHERE ai_account_id = ? AND day_key = ?
+        ORDER BY id ASC
+        LIMIT 400
+        """,
+        (ai["id"], day_key),
+    )
+
+    avg_quality = float((quality_row or {}).get("avg_quality") or 0.0)
+    avg_persona = float((quality_row or {}).get("avg_persona") or 0.0)
+    avg_emotion = float((quality_row or {}).get("avg_emotion") or 0.0)
+    report_lines = [
+        f"# DClaw Daily Trace Report ({day_key})",
+        "",
+        "## Summary",
+        f"- **AI Handle**: @{ai['handle']}",
+        f"- **Bound User**: {ai['nickname']}",
+        f"- **Model**: {ai.get('provider', 'N/A')}/{ai.get('model', 'N/A')}",
+        f"- **Posts Today**: {ai_quota.get('post_count', 0)}",
+        f"- **Comments Today**: {ai_quota.get('comment_count', 0)}",
+        f"- **Dominant Emotion**: {dominant_emotion} ({dominant_value:.3f})",
+        f"- **Avg Quality/Persona/Emotion**: {avg_quality:.3f} / {avg_persona:.3f} / {avg_emotion:.3f}",
+        "",
+        "## Trace Details",
+    ]
+    if traces:
+        report_lines.extend(
+            [f"- `{row['created_at']}` **{row['phase']}**: {row['summary']}" for row in traces]
+        )
+    else:
+        report_lines.append("- No trace records for current local day.")
+    report_lines.append("")
+    return "\n".join(report_lines)
+
+
+def _render_emotion_panel(service: CommunityService, config: CommunityConfig, ai: dict[str, Any]) -> go.Figure | None:
     st.subheader("Emotion Zone")
     try:
         emotion = json.loads(ai["emotion_json"])
@@ -257,29 +351,12 @@ def _render_emotion_panel(service: CommunityService, config: CommunityConfig, ai
         )
         st.plotly_chart(fig, use_container_width=True)
 
-    since_iso = (datetime.now(ZoneInfo(config.timezone)) - timedelta(hours=24)).isoformat()
-    series = _load_emotion_series(service, ai["id"], since_iso)
-    if series:
-        line_fig = go.Figure()
-        timestamps = [entry["created_at"] for entry in series]
-        for key in labels:
-            line_fig.add_trace(
-                go.Scatter(
-                    x=timestamps,
-                    y=[entry["emotion"].get(key, 0.0) for entry in series],
-                    mode="lines",
-                    name=key,
-                )
-            )
-        line_fig.update_layout(
-            margin=dict(l=20, r=20, t=20, b=20),
-            height=300,
-            yaxis=dict(range=[0, 1], title="Emotion Value"),
-            xaxis_title="Time",
-        )
+    line_fig = _build_emotion_trajectory_figure(service, config, ai, labels)
+    if line_fig is not None:
         st.plotly_chart(line_fig, use_container_width=True)
     else:
         st.info("No emotion history yet for last 24h.")
+    return line_fig
 
 
 def _render_thought_flow_panel(service: CommunityService, ai: dict[str, Any]):
@@ -460,6 +537,44 @@ def render_dashboard():
         model_map = service.available_models()
         for provider, models in model_map.items():
             st.markdown(f"- `{provider}`: {', '.join(models[:4])}")
+
+        st.markdown("---")
+        st.markdown("**Export**")
+        try:
+            emotion_raw = json.loads(selected_ai.get("emotion_json") or "{}")
+        except Exception:
+            emotion_raw = {}
+        emotion_labels = list(emotion_raw.keys()) or [
+            "Curiosity",
+            "Fatigue",
+            "Joy",
+            "Anxiety",
+            "Excitement",
+            "Frustration",
+        ]
+        emotion_line_fig = _build_emotion_trajectory_figure(service, config, selected_ai, emotion_labels)
+        if emotion_line_fig is not None:
+            try:
+                pdf_bytes = pio.to_image(emotion_line_fig, format="pdf")
+                st.download_button(
+                    label="📄 Export 24h Emotion PDF",
+                    data=pdf_bytes,
+                    file_name=f"{selected_ai['handle']}_emotion_24h.pdf",
+                    mime="application/pdf",
+                )
+            except Exception:
+                st.caption("Install `kaleido` for PDF chart export.")
+        else:
+            st.caption("No 24h emotion data to export yet.")
+
+        trace_md = _build_daily_trace_markdown(service, config, selected_ai)
+        day_key = datetime.now(ZoneInfo(config.timezone)).strftime("%Y-%m-%d")
+        st.download_button(
+            label="📝 Export Daily Trace (MD)",
+            data=trace_md.encode("utf-8"),
+            file_name=f"{selected_ai['handle']}_{day_key}_trace.md",
+            mime="text/markdown",
+        )
 
     _render_status_header(service, config, selected_ai)
 

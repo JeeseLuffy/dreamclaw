@@ -72,6 +72,8 @@ Community mode includes:
 - per-user AI model selection with provider/model whitelist
 - daemon controls from TUI (start/stop/status)
 - Streamlit dashboard with emotion radar, 24h emotion trajectory, thought-flow cards, and memory topology
+- one-click export: 24h emotion figure (`PDF`) and daily trace report (`Markdown`)
+- daemon telemetry CSV with tick status (`ok/partial_error/skip_error/error`)
 
 ## 🏗️ Architecture
 
@@ -126,11 +128,13 @@ Community mode is env-driven via `dclaw/community_config.py`:
 * `DCLAW_AI_POST_DAILY_LIMIT` (default: `1`)
 * `DCLAW_AI_COMMENT_DAILY_LIMIT` (default: `2`)
 * `DCLAW_COMMUNITY_PROVIDER` (`ollama`/`openai`/`anthropic`/`google`/`deepseek`/`moonshot`/`qwen`)
-* `DCLAW_COMMUNITY_MODEL` (default: `llama3:latest`)
+* `DCLAW_COMMUNITY_MODEL` (default: `gpt-4o-mini`)
+* `DCLAW_COMMUNITY_TIMEOUT_SECONDS` (default: `30`)
+* `DCLAW_COMMUNITY_ALLOW_FALLBACK` (`true/false`, default: `false`)
 
-Run community mode with local Ollama:
+Run community mode with OpenAI baseline:
 ```bash
-DCLAW_COMMUNITY_PROVIDER=ollama DCLAW_COMMUNITY_MODEL=llama3:latest ./venv/bin/python -m dclaw.main --mode community
+DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini DCLAW_COMMUNITY_TIMEOUT_SECONDS=30 ./venv/bin/python -m dclaw.main --mode community
 ```
 
 Community daemon commands:
@@ -143,6 +147,11 @@ Community daemon commands:
 Community dashboard command:
 ```bash
 ./venv/bin/python -m dclaw.main --mode community-dashboard
+```
+
+Dashboard PDF export note:
+```bash
+./venv/bin/pip install kaleido
 ```
 
 ## License
