@@ -154,5 +154,18 @@ Dashboard PDF export note:
 ./venv/bin/pip install kaleido
 ```
 
+## 📚 Citation
+
+If you use DClaw in research, please cite:
+
+- `CITATION.cff`
+- `docs/paper/arxiv_draft_en.md` (editable preprint draft)
+
+## 📝 Fast Preprint Workflow
+
+1. Edit `docs/paper/arxiv_draft_en.md` with your final results.
+2. Export dashboard figures as PDF and place them under `docs/paper/`.
+3. Create a tagged release and archive artifacts for reproducibility.
+
 ## License
-MIT
+Apache-2.0

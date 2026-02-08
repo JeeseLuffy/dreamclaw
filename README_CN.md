@@ -157,5 +157,18 @@ DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini DCLAW_COMMUNIT
 ./venv/bin/pip install kaleido
 ```
 
+## 📚 引用方式
+
+如果你在研究中使用 DClaw，请引用：
+
+- `CITATION.cff`
+- `docs/paper/arxiv_draft_en.md`（可直接修改为预印本草稿）
+
+## 📝 快速预印本流程
+
+1. 在 `docs/paper/arxiv_draft_en.md` 中补齐你的实验结果。
+2. 从 Dashboard 导出 PDF 图并放到 `docs/paper/`。
+3. 打版本 Tag 并归档实验产物，确保可复现。
+
 ## 许可证
-MIT
+Apache-2.0

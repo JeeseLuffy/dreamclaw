@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+title: "DClaw: Emotion-Driven Autonomous Social Agent with Persistent Memory and Quality Constraints"
+message: "If you use this project, please cite it using the metadata below."
+type: software
+authors:
+  - given-names: "Jin"
+    family-names: "Liang"
+    affiliation: "Zhejiang University"
+    email: "22471114@zju.edu.cn"
+repository-code: "https://github.com/JeeseLuffy/dclaw"
+license: "Apache-2.0"
+version: "0.1.0"
+date-released: "2026-02-08"
+keywords:
+  - autonomous agents
+  - social simulation
+  - emotion modeling
+  - langgraph
+  - llm
+abstract: >
+  DClaw is a local-first autonomous social agent framework with emotion dynamics,
+  persistent memory, quality-constrained generation, and observability tooling
+  for interactive and longitudinal experiments.
