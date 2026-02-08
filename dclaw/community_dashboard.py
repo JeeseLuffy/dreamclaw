@@ -36,14 +36,16 @@ def launch_dashboard(port: int = 8501):
 
 
 @st.cache_resource
-def _get_service(config_values: tuple[str, str, int, str, str]) -> CommunityService:
-    db_path, timezone, ai_population, provider, model = config_values
+def _get_service(config_values: tuple[str, str, int, str, str, int, int]) -> CommunityService:
+    db_path, timezone, ai_population, provider, model, virtual_day_seconds, human_max_chars = config_values
     config = CommunityConfig(
         db_path=db_path,
         timezone=timezone,
         ai_population=ai_population,
         provider=provider,
         model=model,
+        virtual_day_seconds=virtual_day_seconds,
+        human_max_chars=human_max_chars,
     )
     return CommunityService(config)
 
@@ -203,7 +205,7 @@ def _trace_color(phase: str, summary: str) -> str:
 
 def _render_status_header(service: CommunityService, config: CommunityConfig, ai: dict[str, Any]):
     now_local = datetime.now(ZoneInfo(config.timezone))
-    day_key = now_local.strftime("%Y-%m-%d")
+    day_key = service._day_key(now_local)
     ai_quota = _load_ai_quota(service, ai["id"], day_key)
     user_quota = _load_user_quota(service, ai["user_id"], day_key)
     metrics = service.community_metrics()
@@ -218,7 +220,8 @@ def _render_status_header(service: CommunityService, config: CommunityConfig, ai
 
     st.caption(
         f"Users={metrics['users']} | AI={metrics['ai_accounts']} | "
-        f"Last Tick={_load_scheduler_last_tick(service)} | Provider={metrics['provider']}/{metrics['model']}"
+        f"Last Tick={_load_scheduler_last_tick(service)} | Provider={metrics['provider']}/{metrics['model']} | "
+        f"DayKey={day_key}"
     )
 
 
@@ -255,7 +258,7 @@ def _build_emotion_trajectory_figure(
 
 def _build_daily_trace_markdown(service: CommunityService, config: CommunityConfig, ai: dict[str, Any]) -> str:
     now_local = datetime.now(ZoneInfo(config.timezone))
-    day_key = now_local.strftime("%Y-%m-%d")
+    day_key = service._day_key(now_local)
     ai_quota = _load_ai_quota(service, ai["id"], day_key)
     try:
         emotion = json.loads(ai.get("emotion_json") or "{}")
@@ -288,9 +291,10 @@ def _build_daily_trace_markdown(service: CommunityService, config: CommunityConf
         (ai["id"], day_key),
     )
 
-    avg_quality = float((quality_row or {}).get("avg_quality") or 0.0)
-    avg_persona = float((quality_row or {}).get("avg_persona") or 0.0)
-    avg_emotion = float((quality_row or {}).get("avg_emotion") or 0.0)
+    quality_data = dict(quality_row) if quality_row else {}
+    avg_quality = float(quality_data.get("avg_quality") or 0.0)
+    avg_persona = float(quality_data.get("avg_persona") or 0.0)
+    avg_emotion = float(quality_data.get("avg_emotion") or 0.0)
     report_lines = [
         f"# DClaw Daily Trace Report ({day_key})",
         "",
@@ -507,7 +511,17 @@ def render_dashboard():
     st.caption("Emotion Trajectory · Thought Flow · Memory Topology")
 
     config = CommunityConfig.from_env()
-    service = _get_service((config.db_path, config.timezone, config.ai_population, config.provider, config.model))
+    service = _get_service(
+        (
+            config.db_path,
+            config.timezone,
+            config.ai_population,
+            config.provider,
+            config.model,
+            config.virtual_day_seconds,
+            config.human_max_chars,
+        )
+    )
 
     with st.sidebar:
         st.header("Controls")
@@ -568,7 +582,7 @@ def render_dashboard():
             st.caption("No 24h emotion data to export yet.")
 
         trace_md = _build_daily_trace_markdown(service, config, selected_ai)
-        day_key = datetime.now(ZoneInfo(config.timezone)).strftime("%Y-%m-%d")
+        day_key = service._day_key(datetime.now(ZoneInfo(config.timezone)))
         st.download_button(
             label="📝 Export Daily Trace (MD)",
             data=trace_md.encode("utf-8"),

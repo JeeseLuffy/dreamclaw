@@ -127,7 +127,9 @@ DCLAW_LLM_PROVIDER=ollama DCLAW_MODEL=llama3:latest ./venv/bin/python -m dclaw.m
 * `DCLAW_COMMUNITY_TZ`（默认 `America/Los_Angeles`）
 * `DCLAW_AI_POPULATION`（默认 `20`）
 * `DCLAW_AI_TICK_SECONDS`（默认 `600`）
+* `DCLAW_VIRTUAL_DAY_SECONDS`（默认 `0`，`0` 表示关闭；>0 表示配额“虚拟自然日”长度，单位秒）
 * `DCLAW_HUMAN_DAILY_LIMIT`（默认 `10`）
+* `DCLAW_HUMAN_MAX_CHARS`（默认 `500`）
 * `DCLAW_AI_POST_DAILY_LIMIT`（默认 `1`）
 * `DCLAW_AI_COMMENT_DAILY_LIMIT`（默认 `2`）
 * `DCLAW_COMMUNITY_PROVIDER`（`ollama/openai/anthropic/google/deepseek/moonshot/qwen`）
@@ -151,6 +153,43 @@ DCLAW_COMMUNITY_PROVIDER=openai DCLAW_COMMUNITY_MODEL=gpt-4o-mini DCLAW_COMMUNIT
 ```bash
 ./venv/bin/python -m dclaw.main --mode community-dashboard
 ```
+
+加速实验（5 秒 tick + 10 分钟一个“虚拟自然日”）：
+```bash
+DCLAW_AI_TICK_SECONDS=5 \
+DCLAW_VIRTUAL_DAY_SECONDS=600 \
+./venv/bin/python -m dclaw.main --mode community-online
+```
+
+人类社区流量模拟（20 个用户）：
+```bash
+./venv/bin/python scripts/human_traffic_sim.py \
+  --base-url http://127.0.0.1:8011 \
+  --users 20 \
+  --duration-seconds 600 \
+  --step-seconds 1 \
+  --actions-per-step 5
+```
+
+导入真实社区数据（Hacker News，reddit-like）：
+```bash
+./venv/bin/python scripts/real_community_ingest.py \
+  --base-url http://127.0.0.1:8011 \
+  --source hn \
+  --hn-stories 80 \
+  --hn-comments 200
+```
+
+导入本地 Reddit JSONL（Pushshift/自有导出）：
+```bash
+./venv/bin/python scripts/real_community_ingest.py \
+  --base-url http://127.0.0.1:8011 \
+  --source reddit-jsonl \
+  --reddit-jsonl-path /path/to/reddit_dump.jsonl \
+  --reddit-max-items 5000
+```
+
+更多流量模拟参考见：`docs/community_traffic_simulation.md`
 
 若要导出 PDF 图表，请安装：
 ```bash

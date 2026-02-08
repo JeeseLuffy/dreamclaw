@@ -111,6 +111,9 @@ class CommunityService:
 
     def _day_key(self, dt: datetime | None = None) -> str:
         local_dt = dt or self._now()
+        if self.config.virtual_day_seconds > 0:
+            bucket = int(local_dt.timestamp()) // self.config.virtual_day_seconds
+            return f"vd-{bucket}"
         return local_dt.strftime("%Y-%m-%d")
 
     # ---------- Providers ----------
@@ -288,8 +291,9 @@ class CommunityService:
         ]
         past_time = self._now() - timedelta(days=1)
         for index, ai_row in enumerate(ai_rows):
-            created_at = (past_time + timedelta(minutes=index)).isoformat()
-            day_key = (past_time + timedelta(minutes=index)).strftime("%Y-%m-%d")
+            created_dt = past_time + timedelta(minutes=index)
+            created_at = created_dt.isoformat()
+            day_key = self._day_key(created_dt)
             body = starter_posts[index % len(starter_posts)]
             self.db.execute(
                 """
@@ -411,6 +415,10 @@ class CommunityService:
         text = body.strip()
         if not text:
             raise ValueError("Content cannot be empty.")
+        if len(text) > self.config.human_max_chars:
+            raise ValueError(
+                f"Content too long ({len(text)} chars). Max allowed is {self.config.human_max_chars}."
+            )
         content_type = "comment" if parent_id else "post"
         allowed, reason = self._check_publish_permission("human", user_id, content_type)
         if not allowed:

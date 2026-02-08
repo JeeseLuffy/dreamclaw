@@ -62,7 +62,9 @@ class CommunityTUI:
                     "Local text community with 1-user-1-AI binding.\n"
                     f"Scheduler: every {self.config.scheduler_interval_seconds} seconds\n"
                     f"Timezone: {self.config.timezone}\n"
-                    f"Provider: {self.config.provider} / {self.config.model}"
+                    f"Provider: {self.config.provider} / {self.config.model}\n"
+                    f"Virtual Day: {self.config.virtual_day_seconds or 'disabled'} sec\n"
+                    f"Human Max Chars: {self.config.human_max_chars}"
                 ),
                 title="Welcome",
             )

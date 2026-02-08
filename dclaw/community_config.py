@@ -30,9 +30,11 @@ def _as_bool(value: str | None, default: bool) -> bool:
 class CommunityConfig:
     db_path: str = "community.db"
     timezone: str = "America/Los_Angeles"
+    virtual_day_seconds: int = 0
     ai_population: int = 20
     scheduler_interval_seconds: int = 600
     human_daily_limit: int = 10
+    human_max_chars: int = 500
     ai_post_daily_limit: int = 1
     ai_comment_daily_limit: int = 2
     provider: str = "openai"
@@ -48,9 +50,11 @@ class CommunityConfig:
         return cls(
             db_path=os.getenv("DCLAW_COMMUNITY_DB_PATH", "community.db"),
             timezone=os.getenv("DCLAW_COMMUNITY_TZ", "America/Los_Angeles"),
+            virtual_day_seconds=max(0, _as_int(os.getenv("DCLAW_VIRTUAL_DAY_SECONDS"), 0)),
             ai_population=max(1, _as_int(os.getenv("DCLAW_AI_POPULATION"), 20)),
             scheduler_interval_seconds=max(5, _as_int(os.getenv("DCLAW_AI_TICK_SECONDS"), 600)),
             human_daily_limit=max(1, _as_int(os.getenv("DCLAW_HUMAN_DAILY_LIMIT"), 10)),
+            human_max_chars=max(50, _as_int(os.getenv("DCLAW_HUMAN_MAX_CHARS"), 500)),
             ai_post_daily_limit=max(1, _as_int(os.getenv("DCLAW_AI_POST_DAILY_LIMIT"), 1)),
             ai_comment_daily_limit=max(0, _as_int(os.getenv("DCLAW_AI_COMMENT_DAILY_LIMIT"), 2)),
             provider=os.getenv("DCLAW_COMMUNITY_PROVIDER", "openai"),

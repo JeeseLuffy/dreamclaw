@@ -4,8 +4,12 @@
 \usepackage{booktabs}
 \usepackage{hyperref}
 \usepackage{enumitem}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
 
-\title{DClaw: Explicit Emotion Dynamics for Autonomous Social Agents in a Local Community Simulator}
+\title{DClaw: Reliability-Aware Emotion Dynamics for Longitudinal Autonomous Social Agents}
 \author{
   Jin Liang \\
   Zhejiang University \\
@@ -17,102 +21,185 @@
 \maketitle
 
 \begin{abstract}
-We present \textbf{DClaw}, a local-first framework for longitudinal social-agent experiments. DClaw combines explicit emotion dynamics, feedback-based memory reflection, and constrained generation under daily action budgets. The runtime executes a cyclic loop (\texttt{Observe $\rightarrow$ Draft $\rightarrow$ Critic $\rightarrow$ Decide $\rightarrow$ Act $\rightarrow$ Reflect}) over a multi-agent text community with persistent state and telemetry logging. We provide a reproducibility-first 12-hour evaluation protocol, metric definitions, and a time-budgeted ablation design for rapid arXiv disclosure.
+We present \textbf{DClaw}, a local-first framework for studying autonomous social agents under longitudinal constraints. DClaw combines explicit emotion dynamics, reflection-based memory adaptation, and critic-constrained generation inside a cyclic runtime (\texttt{Observe $\rightarrow$ Draft $\rightarrow$ Critic $\rightarrow$ Decide $\rightarrow$ Act $\rightarrow$ Reflect}). In contrast to short-turn benchmarks, our focus is stability across time: bounded-latency inference, skip-on-error scheduling, and telemetry-level reproducibility. We provide (i) formal state/action definitions, (ii) tick-level pseudo-code, (iii) a 12-hour reproducible evaluation protocol, and (iv) quantitative/qualitative result templates that can be filled without changing methodology. This preprint is designed for rapid arXiv disclosure with clear upgrade paths toward workshop and full-paper evaluation.
 \end{abstract}
 
 \section{Introduction}
-Most LLM-agent systems are evaluated in short interaction windows, while social behavior requires longitudinal consistency, error resilience, and identity continuity. DClaw addresses this gap with a reliability-aware social-agent loop that remains live under model failures and logs complete time-series traces for analysis.
+Most LLM-agent studies evaluate short interaction windows, while social agents in practice must sustain identity, adapt to engagement signals, and remain robust under runtime failures. Existing systems often under-specify explicit emotional state transitions and failure-continuation behavior when generation APIs timeout or become unavailable.
 
-\paragraph{Contributions}
+DClaw targets this gap with a reliability-aware social runtime. The key idea is to treat social behavior as a constrained sequential decision process with persistent latent state and explicit operational safeguards.
+
+\paragraph{Main Contributions}
 \begin{enumerate}[leftmargin=1.2em]
-  \item Explicit emotion-driven social policy for posting and commenting decisions.
-  \item Feedback-based reflection using \texttt{likes/replies/ignored/topic drift} signals.
-  \item Timeout-bounded, skip-on-error scheduler for robust long-horizon execution.
-  \item Reproducibility toolkit: telemetry CSV, trace logs, and dashboard export artifacts.
+  \item \textbf{Explicit emotion-driven policy:} emotion state directly influences action preference and generation style.
+  \item \textbf{Feedback-grounded reflection:} persona updates are driven by \texttt{likes/replies/ignored/topic drift} with bounded adaptation.
+  \item \textbf{Reliability-first execution:} timeout-bounded model calls and skip-on-error ticks prevent scheduler collapse.
+  \item \textbf{Reproducible observability stack:} telemetry CSV, thought traces, and dashboard export tools (PDF figures + Markdown reports).
 \end{enumerate}
 
-\section{Problem Formulation}
-At scheduler tick $t$, each agent is represented as:
+\section{Related Work}
+\subsection{Social and Multi-Agent LLM Systems}
+Recent work explores social behavior and multi-agent collaboration in simulated environments, including Generative Agents \cite{park2023generative}, CAMEL \cite{li2023camel}, AutoGen \cite{wu2023autogen}, MetaGPT \cite{hong2023metagpt}, and Voyager \cite{wang2023voyager}. These works establish strong foundations for autonomous interaction, planning, and role specialization.
+
+\subsection{Reasoning and Reflection}
+Reasoning-action loops and iterative self-improvement are central in ReAct \cite{yao2023react}, Reflexion \cite{shinn2023reflexion}, and Self-Refine \cite{madaan2023selfrefine}. DClaw adopts this spirit but anchors reflection to social engagement signals under daily action constraints.
+
+\subsection{Evaluation and Reliability Perspectives}
+Judge-style evaluation \cite{zheng2023judging} and memory-augmented approaches \cite{zhong2023memorybank} motivate our critic and memory design, while surveys \cite{wang2023surveyagents} highlight the need for longitudinal, reproducible agent evaluation. DClaw explicitly emphasizes runtime robustness as a first-class research variable.
+
+\begin{table}[t]
+\centering
+\caption{Positioning DClaw against representative prior systems.}
+\begin{tabular}{lccccc}
+\toprule
+System & Explicit Emotion & Reflection & Social Constraints & Runtime Robustness & Open Repro \\
+\midrule
+Generative Agents \cite{park2023generative} & Implicit & Yes & Partial & Limited & Partial \\
+CAMEL \cite{li2023camel} & No & Limited & No & Limited & Yes \\
+AutoGen \cite{wu2023autogen} & No & Tool-centric & No & Partial & Yes \\
+Reflexion \cite{shinn2023reflexion} & No & Strong & No & Limited & Yes \\
+\textbf{DClaw (ours)} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Method}
+\subsection{State, Action, and Objective}
+At tick $t$, an agent state is:
 \[
 s_t = (m_t, e_t, p_t, q_t),
 \]
-where $m_t$ is memory context, $e_t \in [0,1]^K$ is emotion state, $p_t$ is persona state, and $q_t$ is quota state.
+where $m_t$ is memory context, $e_t \in [0,1]^K$ is emotion vector, $p_t$ is persona state, and $q_t$ is daily quota state.
 
 Action space:
 \[
 a_t \in \{\texttt{post}, \texttt{comment}, \texttt{skip}\}.
 \]
 
-Constrained policy:
+Constrained objective:
 \[
-a_t = \arg\max_a U(a \mid s_t) \quad \text{s.t.} \quad \text{quality} \ge \tau_a,\; q_t(a) > 0.
+a_t = \arg\max_{a \in \mathcal{A}} U(a \mid s_t)
+\quad
+\text{s.t.}
+\quad
+\text{score}(a) \ge \tau_a,\;
+q_t(a) > 0.
 \]
 
-If generation fails or times out, $a_t$ defaults to \texttt{skip}, preserving scheduler continuity.
-
-\section{Method}
-\subsection{Cyclic Runtime}
-Each agent runs:
+\subsection{Emotion Update Dynamics}
+Let $\lambda \in [0,1]$ be inertia, $\phi(x_t)$ perception/event features, and $\psi(r_t)$ social feedback features:
 \[
-\texttt{Observe} \rightarrow \texttt{Draft} \rightarrow \texttt{Critic} \rightarrow \texttt{Decide} \rightarrow \texttt{Act} \rightarrow \texttt{Reflect}.
+e_{t+1} =
+\text{clip}_{[0,1]}
+\left(
+\lambda e_t + W_{\phi}\phi(x_t) + W_{\psi}\psi(r_t)
+\right).
+\]
+Here, $r_t$ includes likes, replies, ignored flag, and topic-drift score. This preserves continuity while allowing event-driven adaptation.
+
+\subsection{Reflection and Persona Adaptation}
+Given recent outputs $\mathcal{Y}_{t-w:t}$ and engagement signals $\mathcal{R}_{t-w:t}$, DClaw computes a bounded persona update:
+\[
+p_{t+1} = \mathcal{B}_{\delta}(p_t, g(\mathcal{Y}_{t-w:t}, \mathcal{R}_{t-w:t})),
+\]
+where $\mathcal{B}_{\delta}$ enforces max drift budget $\delta$ per window.
+
+\subsection{Critic-Constrained Draft Selection}
+For draft candidates $\{d_i\}_{i=1}^{N}$:
+\[
+\text{score}(d_i) = \alpha s_{\text{quality}}(d_i)
++ \beta s_{\text{persona}}(d_i)
++ \gamma s_{\text{emotion}}(d_i),
+\]
+\[
+d^\star = \arg\max_i \text{score}(d_i),
+\quad
+\text{publish iff } \text{score}(d^\star) \ge \tau_a.
 \]
 
-\subsection{Emotion Dynamics}
-Emotion is updated from contextual and engagement events. In implementation, feedback signals shift emotion variables that subsequently affect action desire and generation tone.
+\subsection{Algorithm 1: Tick-Level Agent Cycle}
+\begin{algorithm}[t]
+\caption{DClaw Tick Cycle (single agent)}
+\begin{algorithmic}[1]
+\Require state $(m_t,e_t,p_t,q_t)$, provider config, thresholds $\tau$, quotas
+\If{provider unavailable or call timeout}
+  \State log status \texttt{skip\_error}; \Return \texttt{skip}
+\EndIf
+\State observe timeline/context $x_t$
+\State update emotion $e_{t+1}$ via Eq. (2)
+\State generate $N$ draft candidates for feasible actions
+\State score candidates with critic and consistency terms
+\If{best score below threshold or quota exhausted}
+  \State log decision; persist state; \Return \texttt{skip}
+\Else
+  \State publish best candidate; update quota
+  \State apply reflection update to persona $p_{t+1}$
+  \State log \texttt{act} trace and telemetry status \texttt{ok}
+  \State \Return selected action
+\EndIf
+\end{algorithmic}
+\end{algorithm}
 
-\subsection{Memory Reflection}
-After actions are observed, DClaw computes topic drift and updates persona within bounded drift constraints, while marking processed feedback to avoid duplicate updates.
-
-\subsection{Critic and Constraints}
-For each action attempt, multiple drafts are generated and scored by (i) quality, (ii) persona consistency, and (iii) emotion alignment. Only above-threshold drafts can be published under daily post/comment budgets.
-
-\subsection{Reliability Layer}
-DClaw uses timeout-bounded inference (default 30s), optional fallback control, and non-blocking daemon ticks. Telemetry records tick status classes:
-\[
-\{\texttt{ok}, \texttt{partial\_error}, \texttt{skip\_error}, \texttt{error}\}.
-\]
-
-\section{Implementation}
+\section{Experimental Design (12-Hour Budget)}
+\subsection{Environment}
 \begin{itemize}[leftmargin=1.2em]
-  \item \textbf{Language:} Python
-  \item \textbf{Storage:} SQLite
-  \item \textbf{Interfaces:} Rich TUI, FastAPI, Streamlit dashboard
-  \item \textbf{Execution:} daemon scheduler
-  \item \textbf{Providers:} OpenAI-compatible APIs and local Ollama
-  \item \textbf{Artifacts:} emotion history, thought trace, telemetry CSV, PDF/Markdown exports
+  \item Population: 20 AI agents, single public timeline
+  \item Runtime: Python, SQLite, daemon scheduler, Streamlit observability
+  \item Model baseline: \texttt{openai/gpt-4o-mini}
+  \item Timeout: 30 seconds per model call
+  \item Fallback: disabled (explicit skip-on-error policy)
+  \item Timezone: America/Los\_Angeles
 \end{itemize}
 
-\section{12-Hour Evaluation Protocol}
-\subsection{Baseline Configuration}
+\subsection{Seeds, Budget, and Ablations}
+Total budget: 12 hours.
 \begin{itemize}[leftmargin=1.2em]
-  \item Population: 20 AI agents
-  \item Timezone: America/Los\_Angeles
-  \item Tick interval: 600s (or 300s for dense pilot)
-  \item Model: openai/gpt-4o-mini
-  \item Timeout: 30s
-  \item Fallback: disabled
+  \item B0 (full system): 6h
+  \item A1 (remove emotion influence): 2h
+  \item A2 (disable reflection update): 2h
+  \item A3 (disable critic filter): 2h
+\end{itemize}
+Recommended random seeds: at least 3 (report per-seed + mean/std).
+
+\subsection{Hyperparameters and Failure Handling}
+\begin{table}[t]
+\centering
+\caption{Core configuration for reproducible runs.}
+\begin{tabular}{ll}
+\toprule
+Parameter & Value \\
+\midrule
+Tick interval & 600s (300s for dense pilot) \\
+AI post limit & 1/day \\
+AI comment limit & 2/day \\
+Candidate drafts $N$ & 2 (default) \\
+Quality thresholds & post: 0.55, comment: 0.50 \\
+Provider timeout & 30s \\
+Fallback mode & disabled \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Failure policy:
+\begin{itemize}[leftmargin=1.2em]
+  \item model resolution failure $\Rightarrow$ \texttt{skip\_error}
+  \item partial per-agent failures $\Rightarrow$ \texttt{partial\_error}
+  \item unrecoverable tick exception $\Rightarrow$ \texttt{error}
 \end{itemize}
 
 \subsection{Metrics}
 \begin{enumerate}[leftmargin=1.2em]
-  \item Emotion Continuity
-  \item Persona Consistency
-  \item Interaction Quality
-  \item Runtime Robustness (tick-status distribution)
+  \item \textbf{Emotion continuity:} mean stability across adjacent emotion snapshots.
+  \item \textbf{Persona consistency:} lexical/semantic consistency between content and persona state.
+  \item \textbf{Interaction quality:} $(\texttt{likes}+\texttt{replies})/\texttt{AI posts}$.
+  \item \textbf{Runtime robustness:} ratio distribution over \{\texttt{ok}, \texttt{partial\_error}, \texttt{skip\_error}, \texttt{error}\}.
 \end{enumerate}
 
-\subsection{Time-Budgeted Ablation}
-\begin{itemize}[leftmargin=1.2em]
-  \item B0 (full): 6h
-  \item A1 (no emotion policy): 2h
-  \item A2 (no reflection): 2h
-  \item A3 (no critic): 2h
-\end{itemize}
-
-\section{Results Template}
-\begin{table}[h]
+\section{Results and Error Analysis (Template, No Fabricated Data)}
+\subsection{Main Quantitative Results}
+\begin{table}[t]
 \centering
-\caption{Quantitative summary (to be filled after runs).}
+\caption{Main metrics for baseline and ablations (fill from telemetry and logs).}
 \begin{tabular}{lcccc}
 \toprule
 Setting & Emotion Continuity & Persona Consistency & Interaction Quality & ok Tick Ratio \\
@@ -125,31 +212,67 @@ A3 (No Critic) & TBD & TBD & TBD & TBD \\
 \end{tabular}
 \end{table}
 
-\section{Relation to Prior Work}
-DClaw is informed by prior social and reflective agent research, including memory-centric social simulation \cite{park2023generative}, reasoning-action loops \cite{yao2023react}, and reflective refinement \cite{shinn2023reflexion,madaan2023selfrefine}. We additionally acknowledge evaluation perspectives from LLM-as-a-judge studies \cite{zheng2023judging}. Our focus is explicit runtime state and reliability-aware longitudinal telemetry.
+\subsection{Runtime Error Breakdown}
+\begin{table}[t]
+\centering
+\caption{Error taxonomy and recommended analysis dimensions.}
+\begin{tabular}{lcl}
+\toprule
+Status & Ratio (TBD) & Interpretation \\
+\midrule
+\texttt{ok} & TBD & normal tick completion \\
+\texttt{partial\_error} & TBD & some agents fail, loop survives \\
+\texttt{skip\_error} & TBD & provider unavailable / timeout \\
+\texttt{error} & TBD & tick-level exception \\
+\bottomrule
+\end{tabular}
+\end{table}
 
-\section{Limitations}
+\subsection{Figure Plan}
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.95\linewidth}{
+\textbf{Figure 1 Placeholder:} 12-hour emotion trajectories (per-agent and population mean).\\
+Source: dashboard PDF export.
+}}
+\caption{Emotion trajectory over 12 hours.}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\fbox{\parbox{0.95\linewidth}{
+\textbf{Figure 2 Placeholder:} Tick-status timeline and cumulative error histogram.\\
+Source: experiment\_telemetry.csv.
+}}
+\caption{Runtime robustness over time.}
+\end{figure}
+
+\subsection{Qualitative Error Analysis Checklist}
+\begin{itemize}[leftmargin=1.2em]
+  \item critic-rejected vs accepted drafts
+  \item ignored-post cascades and emotion drift
+  \item topic drift spikes after high-novelty windows
+  \item provider outage windows and recovery behavior
+\end{itemize}
+
+\section{Discussion}
+\subsection{Innovation Perspective}
+The main novelty is not a single model component, but the \textit{integration} of explicit emotional state, social reflection signals, and reliability-aware scheduling under reproducible telemetry constraints.
+
+\subsection{Threats to Validity}
 \begin{enumerate}[leftmargin=1.2em]
-  \item Simulator-based evaluation (not platform-scale traffic).
-  \item Engineered emotion variables rather than psychometric validation.
-  \item Time-budgeted ablations are preliminary.
+  \item simulator dynamics differ from real platform ecosystems;
+  \item current emotion variables are engineered and not psychometrically calibrated;
+  \item 12-hour protocol provides directional but not definitive statistical evidence.
 \end{enumerate}
 
-\section{Ethics}
-AI-generated content should remain explicitly labeled. The framework should not be used for deceptive impersonation, covert influence, or policy-violating deployment.
+\section{Ethics and Responsible Deployment}
+All AI outputs should be explicitly labeled in public-facing deployments. The framework must not be used for deceptive impersonation, covert manipulation, or policy-violating automation.
 
 \section{Conclusion}
-DClaw provides a reproducibility-first baseline for longitudinal social-agent research with explicit emotion dynamics, constrained social behavior, and robust scheduler operation.
+DClaw provides a practical baseline for longitudinal autonomous social agents, emphasizing explicit state dynamics and runtime reliability. The presented protocol supports rapid arXiv disclosure today and scalable experimental strengthening in future iterations.
 
 \appendix
-\section{Suggested Figures}
-\begin{enumerate}[leftmargin=1.2em]
-  \item Architecture overview
-  \item 12h emotion trajectories
-  \item Critic accepted vs rejected examples
-  \item Tick-status timeline
-\end{enumerate}
-
 \section{Reproducibility Commands}
 \begin{verbatim}
 export DCLAW_COMMUNITY_PROVIDER=openai
@@ -159,8 +282,18 @@ export DCLAW_COMMUNITY_ALLOW_FALLBACK=false
 
 python -m dclaw.main --mode community-daemon --daemon-action start
 python -m dclaw.main --mode community-daemon --daemon-action status
+# collect telemetry + dashboard exports
 python -m dclaw.main --mode community-daemon --daemon-action stop
 \end{verbatim}
+
+\section{Artifact Checklist}
+\begin{itemize}[leftmargin=1.2em]
+  \item fixed commit hash
+  \item config snapshot
+  \item experiment\_telemetry.csv archive
+  \item figure PDFs
+  \item daily markdown trace reports
+\end{itemize}
 
 \bibliographystyle{unsrt}
 \bibliography{references}
