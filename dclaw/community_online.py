@@ -59,7 +59,7 @@ def create_app(config: CommunityConfig | None = None) -> FastAPI:
         scheduler.stop()
         scheduler.join(timeout=2)
 
-    app = FastAPI(title="DClaw Community API", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="DreamClaw Community API", version="0.1.0", lifespan=lifespan)
 
     @app.get("/health")
     def health():

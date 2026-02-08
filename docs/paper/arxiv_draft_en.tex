@@ -9,7 +9,7 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 
-\title{DClaw: Reliability-Aware Emotion Dynamics for Longitudinal Autonomous Social Agents}
+\title{DreamClaw: Reliability-Aware Emotion Dynamics for Longitudinal Autonomous Social Agents}
 \author{
   Jin Liang \\
   Zhejiang University \\
@@ -21,13 +21,13 @@
 \maketitle
 
 \begin{abstract}
-We present \textbf{DClaw}, a local-first framework for studying autonomous social agents under longitudinal constraints. DClaw combines explicit emotion dynamics, reflection-based memory adaptation, and critic-constrained generation inside a cyclic runtime (\texttt{Observe $\rightarrow$ Draft $\rightarrow$ Critic $\rightarrow$ Decide $\rightarrow$ Act $\rightarrow$ Reflect}). In contrast to short-turn benchmarks, our focus is stability across time: bounded-latency inference, skip-on-error scheduling, and telemetry-level reproducibility. We provide (i) formal state/action definitions, (ii) tick-level pseudo-code, (iii) a 12-hour reproducible evaluation protocol, and (iv) quantitative/qualitative result templates that can be filled without changing methodology. This preprint is designed for rapid arXiv disclosure with clear upgrade paths toward workshop and full-paper evaluation.
+We present \textbf{DreamClaw}, a local-first framework for studying autonomous social agents under longitudinal constraints. DreamClaw combines explicit emotion dynamics, reflection-based memory adaptation, and critic-constrained generation inside a cyclic runtime (\texttt{Observe $\rightarrow$ Draft $\rightarrow$ Critic $\rightarrow$ Decide $\rightarrow$ Act $\rightarrow$ Reflect}). In contrast to short-turn benchmarks, our focus is stability across time: bounded-latency inference, skip-on-error scheduling, and telemetry-level reproducibility. We provide (i) formal state/action definitions, (ii) tick-level pseudo-code, (iii) a 12-hour reproducible evaluation protocol, and (iv) quantitative/qualitative result templates that can be filled without changing methodology. This preprint is designed for rapid arXiv disclosure with clear upgrade paths toward workshop and full-paper evaluation.
 \end{abstract}
 
 \section{Introduction}
 Most LLM-agent studies evaluate short interaction windows, while social agents in practice must sustain identity, adapt to engagement signals, and remain robust under runtime failures. Existing systems often under-specify explicit emotional state transitions and failure-continuation behavior when generation APIs timeout or become unavailable.
 
-DClaw targets this gap with a reliability-aware social runtime. The key idea is to treat social behavior as a constrained sequential decision process with persistent latent state and explicit operational safeguards.
+DreamClaw targets this gap with a reliability-aware social runtime. The key idea is to treat social behavior as a constrained sequential decision process with persistent latent state and explicit operational safeguards.
 
 \paragraph{Main Contributions}
 \begin{enumerate}[leftmargin=1.2em]
@@ -43,14 +43,14 @@ DClaw targets this gap with a reliability-aware social runtime. The key idea is 
 Recent work explores social behavior and multi-agent collaboration in simulated environments, including Generative Agents \cite{park2023generative}, CAMEL \cite{li2023camel}, AutoGen \cite{wu2023autogen}, MetaGPT \cite{hong2023metagpt}, and Voyager \cite{wang2023voyager}. These works establish strong foundations for autonomous interaction, planning, and role specialization.
 
 \subsection{Reasoning and Reflection}
-Reasoning-action loops and iterative self-improvement are central in ReAct \cite{yao2023react}, Reflexion \cite{shinn2023reflexion}, and Self-Refine \cite{madaan2023selfrefine}. DClaw adopts this spirit but anchors reflection to social engagement signals under daily action constraints.
+Reasoning-action loops and iterative self-improvement are central in ReAct \cite{yao2023react}, Reflexion \cite{shinn2023reflexion}, and Self-Refine \cite{madaan2023selfrefine}. DreamClaw adopts this spirit but anchors reflection to social engagement signals under daily action constraints.
 
 \subsection{Evaluation and Reliability Perspectives}
-Judge-style evaluation \cite{zheng2023judging} and memory-augmented approaches \cite{zhong2023memorybank} motivate our critic and memory design, while surveys \cite{wang2023surveyagents} highlight the need for longitudinal, reproducible agent evaluation. DClaw explicitly emphasizes runtime robustness as a first-class research variable.
+Judge-style evaluation \cite{zheng2023judging} and memory-augmented approaches \cite{zhong2023memorybank} motivate our critic and memory design, while surveys \cite{wang2023surveyagents} highlight the need for longitudinal, reproducible agent evaluation. DreamClaw explicitly emphasizes runtime robustness as a first-class research variable.
 
 \begin{table}[t]
 \centering
-\caption{Positioning DClaw against representative prior systems.}
+\caption{Positioning DreamClaw against representative prior systems.}
 \begin{tabular}{lccccc}
 \toprule
 System & Explicit Emotion & Reflection & Social Constraints & Runtime Robustness & Open Repro \\
@@ -59,7 +59,7 @@ Generative Agents \cite{park2023generative} & Implicit & Yes & Partial & Limited
 CAMEL \cite{li2023camel} & No & Limited & No & Limited & Yes \\
 AutoGen \cite{wu2023autogen} & No & Tool-centric & No & Partial & Yes \\
 Reflexion \cite{shinn2023reflexion} & No & Strong & No & Limited & Yes \\
-\textbf{DClaw (ours)} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} \\
+\textbf{DreamClaw (ours)} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} & \textbf{Yes} \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -99,14 +99,14 @@ z_{t+1} =
 Here, $r_t$ includes likes, replies, ignored flag, and topic-drift score. This preserves continuity while allowing event-driven adaptation.
 
 \subsection{Reflection and Persona Adaptation}
-Given recent outputs $\mathcal{Y}_{t-w:t}$ and engagement signals $\mathcal{R}_{t-w:t}$, DClaw computes a bounded persona update:
+Given recent outputs $\mathcal{Y}_{t-w:t}$ and engagement signals $\mathcal{R}_{t-w:t}$, DreamClaw computes a bounded persona update:
 \[
 p_{t+1} = \mathcal{B}_{\delta}(p_t, g(\mathcal{Y}_{t-w:t}, \mathcal{R}_{t-w:t})),
 \]
 where $\mathcal{B}_{\delta}$ enforces max drift budget $\delta$ per window.
 
 \subsection{Autonomous Rumination (Offline Self-Reflection)}
-In addition to feedback-grounded reflection, DClaw implements an offline \textit{rumination} step triggered once per (virtual) day. Rumination summarizes ``yesterday'' activity (self posts/comments, likes/replies, ignored events, and high-signal feed items) to produce:
+In addition to feedback-grounded reflection, DreamClaw implements an offline \textit{rumination} step triggered once per (virtual) day. Rumination summarizes ``yesterday'' activity (self posts/comments, likes/replies, ignored events, and high-signal feed items) to produce:
 (i) a short private insight, (ii) a persona patch phrase, and (iii) a discrete baseline shift choice in PAD space.
 
 We model baseline updates with a small bounded step $\eta$:
@@ -130,7 +130,7 @@ d^\star = \arg\max_i \text{score}(d_i),
 
 \subsection{Algorithm 1: Tick-Level Agent Cycle}
 \begin{algorithm}[t]
-\caption{DClaw Tick Cycle (single agent)}
+\caption{DreamClaw Tick Cycle (single agent)}
 \begin{algorithmic}[1]
 \Require state $(m_t,e_t,p_t,q_t)$, provider config, thresholds $\tau$, quotas
 \If{day boundary and not yet ruminated}
@@ -287,7 +287,7 @@ The main novelty is not a single model component, but the \textit{integration} o
 All AI outputs should be explicitly labeled in public-facing deployments. The framework must not be used for deceptive impersonation, covert manipulation, or policy-violating automation.
 
 \section{Conclusion}
-DClaw provides a practical baseline for longitudinal autonomous social agents, emphasizing explicit state dynamics and runtime reliability. The presented protocol supports rapid arXiv disclosure today and scalable experimental strengthening in future iterations.
+DreamClaw provides a practical baseline for longitudinal autonomous social agents, emphasizing explicit state dynamics and runtime reliability. The presented protocol supports rapid arXiv disclosure today and scalable experimental strengthening in future iterations.
 
 \appendix
 \section{Reproducibility Commands}

@@ -57,13 +57,13 @@ class AgentRuntime:
 
     def _generate_draft(self, persona: str, tone: str, temperature: float, context_str: str, idx: int) -> str:
         if self.llm is None and self.llm_invoke is None:
-            return f"[{tone}] Insight {idx}: {context_str[:80]} #AI #dclaw"
+            return f"[{tone}] Insight {idx}: {context_str[:80]} #AI #dreamclaw"
 
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    "You are DClaw, a social AI agent.\n"
+                    "You are DreamClaw, a social AI agent.\n"
                     "Persona: {persona}\n"
                     "Tone: {tone}\n"
                     "Creativity temperature hint: {temperature}\n"
@@ -91,7 +91,7 @@ class AgentRuntime:
                 return chain.invoke(payload)
         except Exception as exc:
             print(f"Draft generation failed ({exc}); using fallback.")
-        return f"[{tone}] Thought {idx}: {context_str[:80]} #AI #dclaw"
+        return f"[{tone}] Thought {idx}: {context_str[:80]} #AI #dreamclaw"
 
     def perception_node(self, state: AgentState):
         print("--- 1. Perception/Browsing ---")

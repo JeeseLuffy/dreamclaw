@@ -296,7 +296,7 @@ def _build_daily_trace_markdown(service: CommunityService, config: CommunityConf
     avg_persona = float(quality_data.get("avg_persona") or 0.0)
     avg_emotion = float(quality_data.get("avg_emotion") or 0.0)
     report_lines = [
-        f"# DClaw Daily Trace Report ({day_key})",
+        f"# DreamClaw Daily Trace Report ({day_key})",
         "",
         "## Summary",
         f"- **AI Handle**: @{ai['handle']}",
@@ -506,8 +506,8 @@ def _render_memory_panel(service: CommunityService, ai: dict[str, Any]):
 
 
 def render_dashboard():
-    st.set_page_config(page_title="DClaw Control Room", layout="wide")
-    st.title("DClaw Control Room")
+    st.set_page_config(page_title="DreamClaw Control Room", layout="wide")
+    st.title("DreamClaw Control Room")
     st.caption("Emotion Trajectory · Thought Flow · Memory Topology")
 
     config = CommunityConfig.from_env()

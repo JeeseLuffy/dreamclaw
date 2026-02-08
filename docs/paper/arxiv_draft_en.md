@@ -1,4 +1,4 @@
-# DClaw: Explicit Emotion Dynamics for Autonomous Social Agents in a Local Community Simulator
+# DreamClaw: Explicit Emotion Dynamics for Autonomous Social Agents in a Local Community Simulator
 
 **Author:** Jin Liang  
 **Affiliation:** Zhejiang University  
@@ -9,7 +9,7 @@
 
 ## Abstract
 
-This paper introduces **DClaw**, a local-first framework for longitudinal social-agent experiments. DClaw combines (i) explicit emotion dynamics, (ii) memory reflection from social feedback, and (iii) constrained generation with daily action budgets. The runtime executes a cyclic loop (`Observe -> Draft -> Critic -> Decide -> Act -> Reflect`) over a multi-agent text community, with persistent state and telemetry logging for reproducibility. We release an observability dashboard that exports publication-ready figures (emotion trajectories) and daily thought-trace reports.  
+This paper introduces **DreamClaw**, a local-first framework for longitudinal social-agent experiments. DreamClaw combines (i) explicit emotion dynamics, (ii) memory reflection from social feedback, and (iii) constrained generation with daily action budgets. The runtime executes a cyclic loop (`Observe -> Draft -> Critic -> Decide -> Act -> Reflect`) over a multi-agent text community, with persistent state and telemetry logging for reproducibility. We release an observability dashboard that exports publication-ready figures (emotion trajectories) and daily thought-trace reports.  
 
 This preprint targets rapid arXiv disclosure and reproducibility-first system reporting. We provide a concrete 12-hour evaluation protocol, metric definitions, and ablation design for subsequent quantitative updates.
 
@@ -17,7 +17,7 @@ This preprint targets rapid arXiv disclosure and reproducibility-first system re
 
 LLM agents are increasingly evaluated in short interaction windows, while many practical scenarios (social posting, reputation, persona stability, moderation) are fundamentally longitudinal. Existing systems often under-specify emotional dynamics and failure handling under real runtime constraints (timeouts, provider outage, unstable generation).  
 
-DClaw is designed to close this gap via a reliability-aware social-agent loop: explicit emotion state, policy constraints, and skip-on-error scheduling for uninterrupted time-series logging.
+DreamClaw is designed to close this gap via a reliability-aware social-agent loop: explicit emotion state, policy constraints, and skip-on-error scheduling for uninterrupted time-series logging.
 
 ### Contributions
 
@@ -60,7 +60,7 @@ If generation or provider resolution fails within timeout budget, policy default
 
 ### 3.1 Cyclic Agent Runtime
 
-DClaw executes:
+DreamClaw executes:
 
 `Observe -> Draft -> Critic -> Decide -> Act -> Reflect`
 
@@ -76,11 +76,11 @@ Emotion is updated by observed context and social feedback. In implementation te
 
 This makes social behavior stateful across ticks rather than stateless prompt-only generation.
 
-In addition, DClaw maintains a slowly changing **PAD baseline** that acts as an ``emotional home'' state. Each tick applies a small inertia term that pulls current affect toward this baseline, improving continuity in long-horizon runs.
+In addition, DreamClaw maintains a slowly changing **PAD baseline** that acts as an ``emotional home'' state. Each tick applies a small inertia term that pulls current affect toward this baseline, improving continuity in long-horizon runs.
 
 ### 3.3 Memory Reflection
 
-After content outcomes are observed, DClaw applies reflection updates:
+After content outcomes are observed, DreamClaw applies reflection updates:
 
 - computes topic drift against community trends,
 - adjusts persona within bounded drift limits,
@@ -187,13 +187,13 @@ This gives early directional evidence without requiring multi-day compute.
 
 ## 7. Relation to Prior Work
 
-DClaw is inspired by social-agent and self-reflective LLM literature, including:
+DreamClaw is inspired by social-agent and self-reflective LLM literature, including:
 
 - memory-centric social simulation (e.g., Generative Agents),
 - reflective refinement loops (e.g., Reflexion, Self-Refine),
 - action reasoning and tool-aware loops (e.g., ReAct).
 
-Unlike pure prompt-level affect prompting, DClaw focuses on explicit runtime state plus reliability-aware longitudinal telemetry.
+Unlike pure prompt-level affect prompting, DreamClaw focuses on explicit runtime state plus reliability-aware longitudinal telemetry.
 
 ## 8. Limitations and Future Work
 
@@ -219,7 +219,7 @@ Unlike pure prompt-level affect prompting, DClaw focuses on explicit runtime sta
 
 ## 11. Conclusion
 
-DClaw provides a practical and reproducible baseline for longitudinal social-agent research with explicit emotion dynamics and robust scheduler behavior. The current release prioritizes transparent system reporting and rapid research disclosure, and is designed for incremental quantitative expansion.
+DreamClaw provides a practical and reproducible baseline for longitudinal social-agent research with explicit emotion dynamics and robust scheduler behavior. The current release prioritizes transparent system reporting and rapid research disclosure, and is designed for incremental quantitative expansion.
 
 ---
 
@@ -248,8 +248,8 @@ python -m dclaw.main --mode community-daemon --daemon-action stop
 ## Appendix C: Local BibTeX Entry
 
 ```bibtex
-@misc{liang2026dclaw,
-  title={DClaw: Explicit Emotion Dynamics for Autonomous Social Agents in a Local Community Simulator},
+@misc{liang2026dreamclaw,
+  title={DreamClaw: Explicit Emotion Dynamics for Autonomous Social Agents in a Local Community Simulator},
   author={Jin Liang},
   year={2026},
   howpublished={GitHub repository},

@@ -99,7 +99,7 @@ class ApiClient:
 def _fetch_hn_hits(tag: str, hits_per_page: int) -> list[dict[str, Any]]:
     query = urllib.parse.urlencode({"tags": tag, "hitsPerPage": hits_per_page})
     url = f"https://hn.algolia.com/api/v1/search_by_date?{query}"
-    request = urllib.request.Request(url=url, headers={"User-Agent": "DClaw/0.1"})
+    request = urllib.request.Request(url=url, headers={"User-Agent": "DreamClaw/0.1"})
     with urllib.request.urlopen(request, timeout=20) as response:
         payload = json.loads(response.read().decode("utf-8"))
     return payload.get("hits", [])
@@ -107,7 +107,7 @@ def _fetch_hn_hits(tag: str, hits_per_page: int) -> list[dict[str, Any]]:
 
 def _fetch_hn_item(item_id: str) -> dict[str, Any] | None:
     url = f"https://hn.algolia.com/api/v1/items/{urllib.parse.quote(str(item_id))}"
-    request = urllib.request.Request(url=url, headers={"User-Agent": "DClaw/0.1"})
+    request = urllib.request.Request(url=url, headers={"User-Agent": "DreamClaw/0.1"})
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             return json.loads(response.read().decode("utf-8"))
@@ -299,7 +299,7 @@ def ingest_reddit_jsonl(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Ingest real community data into DClaw")
+    parser = argparse.ArgumentParser(description="Ingest real community data into DreamClaw")
     parser.add_argument("--base-url", default="http://127.0.0.1:8011", help="community-online base URL")
     parser.add_argument("--source", choices=["hn", "reddit-jsonl"], default="hn")
     parser.add_argument("--hn-stories", type=int, default=80, help="HN story hits to fetch")

@@ -228,7 +228,7 @@ class HumanTrafficSimulator:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="DClaw human traffic simulator")
+    parser = argparse.ArgumentParser(description="DreamClaw human traffic simulator")
     parser.add_argument("--base-url", default="http://127.0.0.1:8011", help="community-online API base URL")
     parser.add_argument("--users", type=int, default=20, help="simulated human users")
     parser.add_argument("--duration-seconds", type=int, default=600, help="simulation duration")

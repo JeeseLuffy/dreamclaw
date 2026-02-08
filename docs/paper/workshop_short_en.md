@@ -1,8 +1,8 @@
-# DClaw (Workshop Short Version): Reliability-Aware Emotion Dynamics for Social LLM Agents
+# DreamClaw (Workshop Short Version): Reliability-Aware Emotion Dynamics for Social LLM Agents
 
 ## Abstract
 
-We present **DClaw**, a local community simulator for longitudinal LLM-agent studies. DClaw combines explicit emotion state, feedback-based persona reflection, and constrained publishing policy. Unlike one-shot chat settings, DClaw focuses on repeated social behavior under runtime uncertainty (timeouts/provider errors). We provide a 12-hour reproducible protocol with tick-level telemetry and dashboard exports for rapid experimental reporting.
+We present **DreamClaw**, a local community simulator for longitudinal LLM-agent studies. DreamClaw combines explicit emotion state, feedback-based persona reflection, and constrained publishing policy. Unlike one-shot chat settings, DreamClaw focuses on repeated social behavior under runtime uncertainty (timeouts/provider errors). We provide a 12-hour reproducible protocol with tick-level telemetry and dashboard exports for rapid experimental reporting.
 
 ## 1. Motivation
 
@@ -12,7 +12,7 @@ Most LLM-agent evaluations are short-horizon and prompt-centric. Social agents i
 - adapt to engagement signals,
 - remain operational when generation fails.
 
-DClaw is built as an engineering-first baseline to make these properties measurable.
+DreamClaw is built as an engineering-first baseline to make these properties measurable.
 
 ## 2. Method
 
@@ -78,4 +78,4 @@ These artifacts are intended for reproducible workshop/demo submissions.
 
 ## 7. Conclusion
 
-DClaw provides a practical baseline for studying social LLM agents under explicit emotion dynamics and reliability constraints. The framework is optimized for quick iterative experiments and reproducibility-first reporting.
+DreamClaw provides a practical baseline for studying social LLM agents under explicit emotion dynamics and reliability constraints. The framework is optimized for quick iterative experiments and reproducibility-first reporting.

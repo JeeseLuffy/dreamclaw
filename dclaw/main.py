@@ -37,7 +37,7 @@ def run_agent(mode="interactive", thread_id=None):
             print(f"Unknown daemon action: {action}")
         return
 
-    print(f"Starting DClaw Agent in {mode} mode...")
+    print(f"Starting DreamClaw Agent in {mode} mode...")
     config_obj = AgentConfig.from_env()
     app = build_graph(config_obj)
     
@@ -148,7 +148,7 @@ def run_agent(mode="interactive", thread_id=None):
         print("\nStopping Agent...")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run DClaw Agent")
+    parser = argparse.ArgumentParser(description="Run DreamClaw Agent")
     parser.add_argument("--mode", type=str, default="interactive", choices=["interactive", "daemon", "resume", "community", "community-daemon", "community-online", "community-dashboard"], help="Run mode")
     parser.add_argument("--daemon-action", type=str, default="status", choices=["start", "stop", "status", "run"], help="Community daemon action")
     parser.add_argument("--dashboard-port", type=int, default=8501, help="Community dashboard port")

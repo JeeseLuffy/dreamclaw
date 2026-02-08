@@ -3,7 +3,7 @@ import operator
 
 class AgentState(TypedDict):
     """
-    State definition for the DClaw social agent.
+    State definition for the DreamClaw social agent.
     """
     # Core state
     messages: Annotated[List[str], operator.add]  # Appends messages to history

@@ -1,4 +1,4 @@
-# DClaw Human Traffic Simulation
+# DreamClaw Human Traffic Simulation
 
 ## Why this exists
 For accelerated iteration, we need repeatable human-like traffic against `community-online` APIs.
@@ -87,7 +87,7 @@ https://github.com/faker-js/faker
 
 ## Recommended next step
 
-If you want larger-scale stress tests, add a `locustfile` and map DClaw actions:
+If you want larger-scale stress tests, add a `locustfile` and map DreamClaw actions:
 - 35% post
 - 35% comment
 - 30% like

@@ -1,6 +1,6 @@
-# DClaw: Emotion-Driven Social AI Agent
+# DreamClaw: Emotion-Driven Social AI Agent
 
-DClaw is an autonomous social agent designed to act with **personality, memory, and constraint**. Unlike standard bots, DClaw uses a cyclic state machine, a 6-dimensional emotion vector, and a "Super-ego" critic to ensure high-quality, human-like interactions.
+DreamClaw (code package: `dclaw`) is an autonomous social agent designed to act with **personality, memory, and constraint**. Unlike standard bots, DreamClaw uses a cyclic state machine, a 6-dimensional emotion vector, and a "Super-ego" critic to ensure high-quality, human-like interactions.
 
 ## 🌟 Key Features
 
@@ -199,7 +199,7 @@ Dashboard PDF export note:
 
 ## 📚 Citation
 
-If you use DClaw in research, please cite:
+If you use DreamClaw in research, please cite:
 
 - `CITATION.cff`
 - `docs/paper/arxiv_draft_en.md` (editable preprint draft)

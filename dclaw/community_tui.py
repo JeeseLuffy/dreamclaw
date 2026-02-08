@@ -58,7 +58,7 @@ class CommunityTUI:
         self.console.print(
             Panel.fit(
                 (
-                    "[bold cyan]DClaw Community TUI[/bold cyan]\n"
+                    "[bold cyan]DreamClaw Community TUI[/bold cyan]\n"
                     "Local text community with 1-user-1-AI binding.\n"
                     f"Scheduler: every {self.config.scheduler_interval_seconds} seconds\n"
                     f"Timezone: {self.config.timezone}\n"

@@ -1,5 +1,5 @@
 cff-version: 1.2.0
-title: "DClaw: Emotion-Driven Autonomous Social Agent with Persistent Memory and Quality Constraints"
+title: "DreamClaw: Emotion-Driven Autonomous Social Agent with Persistent Memory and Quality Constraints"
 message: "If you use this project, please cite it using the metadata below."
 type: software
 authors:
@@ -18,6 +18,6 @@ keywords:
   - langgraph
   - llm
 abstract: >
-  DClaw is a local-first autonomous social agent framework with emotion dynamics,
+  DreamClaw is a local-first autonomous social agent framework with emotion dynamics,
   persistent memory, quality-constrained generation, and observability tooling
   for interactive and longitudinal experiments.
