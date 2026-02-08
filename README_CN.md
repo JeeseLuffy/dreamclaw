@@ -78,6 +78,13 @@ graph TD
 * `DCLAW_USE_PROMPT_CRITIC`（默认 `true`）
 * `DCLAW_USE_REAL_MEM0`（默认 `false`）
 * `DCLAW_QUALITY_THRESHOLD`（默认 `0.7`）
+* `DCLAW_LLM_PROVIDER`（`openai` 或 `ollama`，默认 `openai`）
+* `DCLAW_MODEL`（例如 `gpt-4o-mini` 或 `llama3:latest`）
+
+使用本地 Ollama 运行：
+```bash
+DCLAW_LLM_PROVIDER=ollama DCLAW_MODEL=llama3:latest ./venv/bin/python -m dclaw.main --mode interactive
+```
 
 这样可先稳定落地 MVP，再逐步升级到 BERT Critic 或图记忆 2.0。
 

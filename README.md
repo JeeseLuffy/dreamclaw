@@ -75,6 +75,13 @@ Configuration is env-driven via `dclaw/config.py`:
 * `DCLAW_USE_PROMPT_CRITIC` (default: `true`)
 * `DCLAW_USE_REAL_MEM0` (default: `false`)
 * `DCLAW_QUALITY_THRESHOLD` (default: `0.7`)
+* `DCLAW_LLM_PROVIDER` (`openai` or `ollama`, default: `openai`)
+* `DCLAW_MODEL` (e.g. `gpt-4o-mini` or `llama3:latest`)
+
+Run with local Ollama:
+```bash
+DCLAW_LLM_PROVIDER=ollama DCLAW_MODEL=llama3:latest ./venv/bin/python -m dclaw.main --mode interactive
+```
 
 This keeps MVP stable while allowing gradual upgrades to heavier stacks (BERT critic / graph memory) in later versions.
 

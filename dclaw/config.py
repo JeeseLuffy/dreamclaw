@@ -28,6 +28,7 @@ def _as_float(value: str, default: float) -> float:
 
 @dataclass
 class AgentConfig:
+    llm_provider: str = "openai"
     model_name: str = "gpt-4o-mini"
     use_llm_generation: bool = True
     use_prompt_critic: bool = True
@@ -44,6 +45,7 @@ class AgentConfig:
     @classmethod
     def from_env(cls) -> "AgentConfig":
         return cls(
+            llm_provider=os.getenv("DCLAW_LLM_PROVIDER", "openai"),
             model_name=os.getenv("DCLAW_MODEL", "gpt-4o-mini"),
             use_llm_generation=_as_bool(os.getenv("DCLAW_USE_LLM_GENERATION"), True),
             use_prompt_critic=_as_bool(os.getenv("DCLAW_USE_PROMPT_CRITIC"), True),

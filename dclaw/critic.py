@@ -9,9 +9,12 @@ class ContentCritic:
     """
     Hybrid critic: rule-based score + optional prompt-based score.
     """
-    def __init__(self, llm=None, use_prompt_critic: bool = True):
+    def __init__(self, llm=None, llm_invoke=None, use_prompt_critic: bool = True):
         self.llm = llm
+        self.llm_invoke = llm_invoke
         self.use_prompt_critic = use_prompt_critic and llm is not None
+        if use_prompt_critic and llm is None and llm_invoke is not None:
+            self.use_prompt_critic = True
 
     def _rule_score(self, content: str, memory_context: Optional[List[str]] = None) -> float:
         score = 0.35
@@ -67,8 +70,16 @@ class ContentCritic:
         )
 
         try:
-            chain = prompt | self.llm | StrOutputParser()
-            raw = chain.invoke({"persona": persona, "tone": tone, "draft": content})
+            inputs = {"persona": persona, "tone": tone, "draft": content}
+            if self.llm_invoke is not None:
+                raw = self.llm_invoke(
+                    "You are a strict social-media editor. Rate draft quality from 0 to 1.\n"
+                    "Return exactly: SCORE=<number>;FEEDBACK=<short reason>.\n\n"
+                    f"Persona:\n{persona}\n\nDesired tone: {tone}\n\nDraft:\n{content}"
+                )
+            else:
+                chain = prompt | self.llm | StrOutputParser()
+                raw = chain.invoke(inputs)
             score_match = re.search(r"SCORE\s*=\s*([0-1](?:\.\d+)?)", raw)
             feedback_match = re.search(r"FEEDBACK\s*=\s*(.+)", raw)
             score = float(score_match.group(1)) if score_match else None

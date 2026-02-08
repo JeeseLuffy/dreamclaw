@@ -5,6 +5,7 @@ import sqlite3
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+import ollama
 from .state import AgentState
 from .memory import AgentMemory
 from .emotion import EmotionState
@@ -22,15 +23,23 @@ class AgentRuntime:
         )
         self.perception_layer = PerceptionLayer()
         self.llm = None
+        self.llm_invoke = None
         if config.use_llm_generation:
-            try:
-                self.llm = ChatOpenAI(model=config.model_name)
-            except Exception as exc:
-                print(f"LLM init failed ({exc}); using rule-only mode.")
-                self.llm = None
+            provider = config.llm_provider.lower()
+            if provider == "openai":
+                try:
+                    self.llm = ChatOpenAI(model=config.model_name)
+                except Exception as exc:
+                    print(f"LLM init failed ({exc}); using rule-only mode.")
+                    self.llm = None
+            elif provider == "ollama":
+                self.llm_invoke = self._ollama_invoke
+            else:
+                print(f"Unsupported llm provider: {provider}. Using rule-only mode.")
 
         self.critic_system = ContentCritic(
             llm=self.llm,
+            llm_invoke=self.llm_invoke,
             use_prompt_critic=config.use_prompt_critic,
         )
         self.daily_constraint = DailyConstraint(
@@ -38,8 +47,16 @@ class AgentRuntime:
             max_posts=config.max_posts_per_day,
         )
 
+    def _ollama_invoke(self, prompt: str) -> str:
+        try:
+            response = ollama.generate(model=self.config.model_name, prompt=prompt)
+            return response.get("response", "").strip()
+        except Exception as exc:
+            print(f"Ollama generation failed ({exc}); using empty response.")
+            return ""
+
     def _generate_draft(self, persona: str, tone: str, temperature: float, context_str: str, idx: int) -> str:
-        if self.llm is None:
+        if self.llm is None and self.llm_invoke is None:
             return f"[{tone}] Insight {idx}: {context_str[:80]} #AI #dclaw"
 
         prompt = ChatPromptTemplate.from_messages(
@@ -55,20 +72,26 @@ class AgentRuntime:
                 ("user", "Context:\n{context}\n\nVariant seed: {seed}"),
             ]
         )
-        chain = prompt | self.llm | StrOutputParser()
+        payload = {
+            "persona": persona,
+            "tone": tone,
+            "temperature": temperature,
+            "context": context_str,
+            "seed": idx,
+        }
         try:
-            return chain.invoke(
-                {
-                    "persona": persona,
-                    "tone": tone,
-                    "temperature": temperature,
-                    "context": context_str,
-                    "seed": idx,
-                }
-            )
+            if self.llm_invoke is not None:
+                rendered_messages = prompt.format_messages(**payload)
+                rendered_prompt = "\n\n".join(msg.content for msg in rendered_messages)
+                text = self.llm_invoke(rendered_prompt)
+                if text:
+                    return text
+            elif self.llm is not None:
+                chain = prompt | self.llm | StrOutputParser()
+                return chain.invoke(payload)
         except Exception as exc:
             print(f"Draft generation failed ({exc}); using fallback.")
-            return f"[{tone}] Thought {idx}: {context_str[:80]} #AI #dclaw"
+        return f"[{tone}] Thought {idx}: {context_str[:80]} #AI #dclaw"
 
     def perception_node(self, state: AgentState):
         print("--- 1. Perception/Browsing ---")
