@@ -1,0 +1,20 @@
+[project]
+name = "dclaw"
+version = "0.1.0"
+description = "Emotion-Driven Social AI Agent with Persistent Memory & Quality Constraints"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "langgraph>=0.2.35",
+    "mem0ai>=0.1.20", 
+    "transformers",
+    "torch",
+    "browser-use",
+    "neo4j",
+    "chromadb",
+    "sentence-transformers",
+    "python-dotenv"
+]
+
+[tool.setuptools]
+packages = ["dclaw"]
