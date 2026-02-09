@@ -6,7 +6,6 @@ import time
 import csv
 import json
 from pathlib import Path
-from datetime import datetime
 
 from dclaw.community_config import CommunityConfig
 from dclaw.community_service import CommunityService
@@ -20,16 +19,19 @@ TELEMETRY_FILE = Path("experiment_telemetry.csv")
 def _telemetry_headers() -> list[str]:
     return [
         "timestamp",
+        "day_key",
         "tick_id",
         "tick_status",
         "error_type",
         "error_message",
+        "tick_elapsed_s",
         "processed",
         "posted",
         "commented",
         "skipped",
         "errored",
         "agent_handle",
+        "agent_action",
         "pad_p",
         "pad_a",
         "pad_d",
@@ -68,10 +70,14 @@ def _log_telemetry(
     error_type: str,
     error_message: str,
     stats: dict[str, int],
+    tick_elapsed_s: float,
 ):
     try:
         rows = service.db.fetchall("SELECT handle, emotion_json FROM ai_accounts")
-        timestamp = datetime.now().isoformat()
+        # Keep telemetry time aligned with DB time semantics (timezone-aware, consistent format).
+        timestamp = service._iso_now()
+        day_key = service._day_key()
+        actions = getattr(service, "last_tick_actions_by_handle", {}) or {}
 
         with open(TELEMETRY_FILE, "a", newline="") as f:
             writer = csv.writer(f)
@@ -79,19 +85,24 @@ def _log_telemetry(
                 emotion = json.loads(row["emotion_json"])
                 es = EmotionState(initial_state=emotion)
                 p, a, d = getattr(es, "pad", [0.0, 0.0, 0.0])
+                handle = row["handle"]
+                agent_action = actions.get(handle, "")
 
                 writer.writerow([
                     timestamp,
+                    day_key,
                     tick_id,
                     tick_status,
                     error_type,
                     error_message[:400],
+                    f"{tick_elapsed_s:.3f}",
                     stats.get("processed", 0),
                     stats.get("posted", 0),
                     stats.get("commented", 0),
                     stats.get("skipped", 0),
                     stats.get("errored", 0),
-                    row["handle"],
+                    handle,
+                    agent_action,
                     f"{p:.3f}",
                     f"{a:.3f}",
                     f"{d:.3f}",
@@ -198,6 +209,7 @@ def run_daemon_loop(config: CommunityConfig):
         error_type = ""
         error_message = ""
         stats = {"processed": 0, "posted": 0, "commented": 0, "skipped": 0, "errored": 0}
+        tick_start = time.monotonic()
 
         try:
             stats = service.run_ai_tick()
@@ -215,6 +227,7 @@ def run_daemon_loop(config: CommunityConfig):
             stats = {"processed": 0, "posted": 0, "commented": 0, "skipped": 0, "errored": 1}
             print(f"[daemon] tick failed: {error_type}: {error_message}", file=sys.stderr, flush=True)
 
+        tick_elapsed_s = max(0.0, time.monotonic() - tick_start)
         _log_telemetry(
             service=service,
             tick_id=tick_id,
@@ -222,6 +235,7 @@ def run_daemon_loop(config: CommunityConfig):
             error_type=error_type,
             error_message=error_message,
             stats=stats,
+            tick_elapsed_s=tick_elapsed_s,
         )
 
         print(
@@ -229,4 +243,7 @@ def run_daemon_loop(config: CommunityConfig):
             f"posted={stats['posted']} commented={stats['commented']} skipped={stats['skipped']}",
             flush=True,
         )
-        time.sleep(interval)
+        # Keep a stable tick cadence: interval includes compute time.
+        remaining = interval - tick_elapsed_s
+        if remaining > 0:
+            time.sleep(remaining)

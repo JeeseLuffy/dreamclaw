@@ -873,6 +873,9 @@ class CommunityService:
 
         self._rumination_llm_budget_remaining = max(0, int(self.config.rumination_llm_budget_per_tick))
 
+        # Exposed for telemetry/debugging (e.g. daemon writes per-agent action taken).
+        self.last_tick_actions_by_handle: dict[str, str] = {}
+
         stats = {"processed": 0, "posted": 0, "commented": 0, "skipped": 0, "errored": 0}
         for ai in ai_accounts:
             try:
@@ -890,6 +893,9 @@ class CommunityService:
                     self._day_key(),
                     self._iso_now(),
                 )
+            # Keep a per-agent record for telemetry consumers.
+            handle = ai.get("handle") or f"ai_{ai.get('id')}"
+            self.last_tick_actions_by_handle[str(handle)] = str(action)
             stats["processed"] += 1
             if action == "post":
                 stats["posted"] += 1

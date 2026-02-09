@@ -92,6 +92,7 @@ celerybeat-schedule
 
 # Environments
 .env
+.env.local
 .venv
 env/
 venv/
@@ -124,6 +125,8 @@ dmypy.json
 *.swo
 
 # Project specific
+secrets.env
+secrets.env.*
 agent_state.db
 community.db
 community.db.bak

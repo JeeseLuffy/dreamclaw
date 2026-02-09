@@ -140,7 +140,12 @@ class GoogleProvider(BaseProvider):
 
 def _http_post_json(url: str, payload: dict, headers: dict, timeout_seconds: int = 30) -> dict:
     data = json.dumps(payload).encode("utf-8")
-    request = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    merged_headers = dict(headers or {})
+    # Some OpenAI-compatible proxies sit behind WAF/CDN rules that block requests
+    # without a browser-like User-Agent.
+    merged_headers.setdefault("User-Agent", "DreamClaw/0.1")
+    merged_headers.setdefault("Accept", "application/json")
+    request = urllib.request.Request(url, data=data, headers=merged_headers, method="POST")
     try:
         with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
             body = response.read().decode("utf-8")
@@ -161,7 +166,9 @@ def build_provider(provider: str, model: str, timeout_seconds: int = 30) -> Base
 
     if provider_name == "openai":
         key = _require_env("OPENAI_API_KEY")
-        base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or "https://api.gptsapi.net"
+        # Default to the official OpenAI endpoint. Users behind a proxy can override
+        # with OPENAI_BASE_URL / OPENAI_API_BASE (e.g. https://your-proxy.example/v1).
+        base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_API_BASE") or "https://api.openai.com/v1"
         base_url = base_url.rstrip("/")
         if base_url.endswith("/v1/chat/completions"):
             endpoint = base_url
