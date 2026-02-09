@@ -42,6 +42,10 @@ class CommunityConfig:
     candidate_drafts: int = 2
     quality_threshold_post: float = 0.55
     quality_threshold_comment: float = 0.5
+    critic_strictness: float = 1.0
+    diversity_window: int = 30
+    diversity_min_sim: float = 0.55
+    diversity_penalty_weight: float = 0.2
     request_timeout_seconds: int = 30
     allow_model_fallback: bool = False
     emotion_inertia: float = 0.05
@@ -67,6 +71,10 @@ class CommunityConfig:
             candidate_drafts=max(1, _as_int(os.getenv("DCLAW_AI_CANDIDATES"), 2)),
             quality_threshold_post=_as_float(os.getenv("DCLAW_POST_THRESHOLD"), 0.55),
             quality_threshold_comment=_as_float(os.getenv("DCLAW_COMMENT_THRESHOLD"), 0.5),
+            critic_strictness=max(0.5, _as_float(os.getenv("DCLAW_CRITIC_STRICTNESS"), 1.0)),
+            diversity_window=max(0, _as_int(os.getenv("DCLAW_DIVERSITY_WINDOW"), 30)),
+            diversity_min_sim=max(0.0, min(1.0, _as_float(os.getenv("DCLAW_DIVERSITY_MIN_SIM"), 0.55))),
+            diversity_penalty_weight=max(0.0, _as_float(os.getenv("DCLAW_DIVERSITY_PENALTY_WEIGHT"), 0.2)),
             request_timeout_seconds=max(5, _as_int(os.getenv("DCLAW_COMMUNITY_TIMEOUT_SECONDS"), 30)),
             allow_model_fallback=_as_bool(os.getenv("DCLAW_COMMUNITY_ALLOW_FALLBACK"), False),
             emotion_inertia=max(0.0, min(1.0, _as_float(os.getenv("DCLAW_EMOTION_INERTIA"), 0.05))),

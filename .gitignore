@@ -125,8 +125,10 @@ dmypy.json
 *.swo
 
 # Project specific
+.DS_Store
 secrets.env
 secrets.env.*
+openclaw-2026.1.30/
 agent_state.db
 community.db
 community.db.bak

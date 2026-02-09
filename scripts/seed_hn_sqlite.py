@@ -25,6 +25,19 @@ def _clean_text(text: str, max_chars: int) -> str:
     return value[:max_chars]
 
 
+def _rewrite_body(text: str, mode: str, max_chars: int) -> str:
+    if mode == "emotional":
+        rewritten = f"在人际与朋友相处上，我想到：{text}"
+        return _clean_text(rewritten, max_chars)
+    return _clean_text(text, max_chars)
+
+
+def _matches_topic(text: str, topic_regex: re.Pattern[str] | None) -> bool:
+    if topic_regex is None:
+        return True
+    return bool(topic_regex.search(text or ""))
+
+
 def _safe_nickname(raw: str, fallback: str = "user") -> str:
     name = re.sub(r"[^a-zA-Z0-9_]+", "_", (raw or "").strip())
     name = name.strip("_").lower()
@@ -125,7 +138,15 @@ def _insert_content(
     return int(row["id"])
 
 
-def seed_hn(db_path: Path, stories: int, comments: int, max_chars: int, throttle_ms: int) -> dict[str, int]:
+def seed_hn(
+    db_path: Path,
+    stories: int,
+    comments: int,
+    max_chars: int,
+    throttle_ms: int,
+    topic_regex: re.Pattern[str] | None,
+    rewrite_mode: str,
+) -> dict[str, int]:
     config = CommunityConfig.from_env()
     tz = ZoneInfo(config.timezone)
     db = CommunityDB(str(db_path))
@@ -151,16 +172,23 @@ def seed_hn(db_path: Path, stories: int, comments: int, max_chars: int, throttle
     story_hits = _fetch_hn_hits("story", stories)
     story_hits.reverse()
     for hit in story_hits:
+        title_raw = (hit.get("title") or "").strip()
+        story_text_raw = (hit.get("story_text") or "").strip()
+        topic_source = f"{title_raw}\n{story_text_raw}".strip()
+        if not _matches_topic(topic_source, topic_regex):
+            stats.skipped += 1
+            continue
         author = hit.get("author") or "anon"
         user_id = get_user(author)
         if user_id is None:
             stats.skipped += 1
             continue
-        title = _clean_text(hit.get("title") or "", 220)
-        story_text = _clean_text(hit.get("story_text") or "", max_chars)
+        title = _clean_text(title_raw, 220)
+        story_text = _clean_text(story_text_raw, max_chars)
         body = title if title else "HN story"
         if story_text:
             body = _clean_text(f"{title}\n{story_text}", max_chars)
+        body = _rewrite_body(body, rewrite_mode, max_chars)
         object_id = str(hit.get("objectID") or "")
         local_id = _insert_content(
             db=db,
@@ -183,6 +211,10 @@ def seed_hn(db_path: Path, stories: int, comments: int, max_chars: int, throttle
     comment_hits = _fetch_hn_hits("comment", comments)
     comment_hits.reverse()
     for hit in comment_hits:
+        comment_raw = (hit.get("comment_text") or "").strip()
+        if not _matches_topic(comment_raw, topic_regex):
+            stats.skipped += 1
+            continue
         author = hit.get("author") or "anon"
         user_id = get_user(author)
         if user_id is None:
@@ -196,14 +228,21 @@ def seed_hn(db_path: Path, stories: int, comments: int, max_chars: int, throttle
                 story_item = _fetch_hn_item(story_id)
                 story_item_cache[story_id] = story_item
             if story_item:
+                story_title_raw = (story_item.get("title") or "").strip()
+                story_text_raw = (story_item.get("text") or "").strip()
+                story_topic_source = f"{story_title_raw}\n{story_text_raw}".strip()
+                if not _matches_topic(story_topic_source, topic_regex):
+                    stats.skipped += 1
+                    continue
                 story_author = story_item.get("author") or "anon"
                 story_user_id = get_user(story_author)
                 if story_user_id:
-                    story_title = _clean_text(story_item.get("title") or "", 220)
-                    story_text = _clean_text(story_item.get("text") or "", max_chars)
+                    story_title = _clean_text(story_title_raw, 220)
+                    story_text = _clean_text(story_text_raw, max_chars)
                     story_body = story_title if story_title else "HN story"
                     if story_text:
                         story_body = _clean_text(f"{story_title}\n{story_text}", max_chars)
+                    story_body = _rewrite_body(story_body, rewrite_mode, max_chars)
                     created_story_id = _insert_content(
                         db=db,
                         author_user_id=story_user_id,
@@ -222,7 +261,7 @@ def seed_hn(db_path: Path, stories: int, comments: int, max_chars: int, throttle
         if not parent_local_id:
             stats.skipped += 1
             continue
-        text = _clean_text(hit.get("comment_text") or "", max_chars)
+        text = _rewrite_body(_clean_text(comment_raw, max_chars), rewrite_mode, max_chars)
         if not text:
             stats.skipped += 1
             continue
@@ -254,17 +293,33 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--comments", type=int, default=200, help="HN comment hits to fetch")
     parser.add_argument("--max-chars", type=int, default=500, help="max content chars to keep")
     parser.add_argument("--throttle-ms", type=int, default=0, help="sleep per write request")
+    parser.add_argument(
+        "--topic-regex",
+        type=str,
+        default="",
+        help="Only keep items matching this regex (case-insensitive).",
+    )
+    parser.add_argument(
+        "--rewrite-mode",
+        type=str,
+        choices=["none", "emotional"],
+        default="none",
+        help="Rewrite mode for content bodies.",
+    )
     return parser.parse_args()
 
 
 def main() -> None:
     args = parse_args()
+    topic_regex = re.compile(args.topic_regex, re.IGNORECASE) if args.topic_regex else None
     stats = seed_hn(
         db_path=Path(args.db),
         stories=max(1, args.stories),
         comments=max(1, args.comments),
         max_chars=max(50, args.max_chars),
         throttle_ms=max(0, args.throttle_ms),
+        topic_regex=topic_regex,
+        rewrite_mode=args.rewrite_mode,
     )
     print(json.dumps({"source": "hn", "stats": stats}, ensure_ascii=False, indent=2))
 

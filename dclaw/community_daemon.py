@@ -15,6 +15,9 @@ from dclaw.emotion import EmotionState
 PID_FILE = Path("community_daemon.pid")
 LOG_FILE = Path("community_daemon.log")
 TELEMETRY_FILE = Path("experiment_telemetry.csv")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+HN_SEED_SCRIPT = REPO_ROOT / "scripts" / "seed_hn_sqlite.py"
+WIKI_TALK_SEED_SCRIPT = REPO_ROOT / "scripts" / "seed_wiki_talk_sqlite.py"
 
 def _telemetry_headers() -> list[str]:
     return [
@@ -200,8 +203,97 @@ def run_daemon_loop(config: CommunityConfig):
     service = CommunityService(config)
     interval = config.scheduler_interval_seconds
 
+    refresh_seconds = max(0, int(os.getenv("DCLAW_HN_REFRESH_SECONDS", "0")))
+    refresh_each_day = os.getenv("DCLAW_HN_REFRESH_EACH_VIRTUAL_DAY", "false").strip().lower() in {"1", "true", "yes", "on"}
+    refresh_stories = max(1, int(os.getenv("DCLAW_HN_REFRESH_STORIES", os.getenv("HN_STORIES", "40"))))
+    refresh_comments = max(1, int(os.getenv("DCLAW_HN_REFRESH_COMMENTS", os.getenv("HN_COMMENTS", "120"))))
+    refresh_topic_regex = os.getenv("DCLAW_HN_TOPIC_REGEX", "").strip()
+    refresh_rewrite_mode = os.getenv("DCLAW_HN_REWRITE_MODE", "none").strip().lower()
+    refresh_max_chars = max(50, int(os.getenv("DCLAW_HN_MAX_CHARS", "500")))
+    last_refresh_monotonic = time.monotonic()
+    last_refresh_day_key = service._day_key()
+    wiki_refresh_seconds = max(0, int(os.getenv("DCLAW_WIKI_REFRESH_SECONDS", "0")))
+    wiki_refresh_each_day = os.getenv("DCLAW_WIKI_REFRESH_EACH_VIRTUAL_DAY", "false").strip().lower() in {"1", "true", "yes", "on"}
+    wiki_refresh_pages = max(1, int(os.getenv("DCLAW_WIKI_REFRESH_PAGES", "30")))
+    wiki_refresh_lang = os.getenv("DCLAW_WIKI_LANG", "en").strip() or "en"
+    wiki_refresh_max_chars = max(0, int(os.getenv("DCLAW_WIKI_MAX_CHARS", "0")))
+    wiki_refresh_throttle_ms = max(0, int(os.getenv("DCLAW_WIKI_THROTTLE_MS", "0")))
+    last_wiki_refresh_monotonic = time.monotonic()
+    last_wiki_refresh_day_key = service._day_key()
+
     _init_telemetry()
     tick_id = 0
+
+    def maybe_refresh_hn(current_day_key: str) -> None:
+        nonlocal last_refresh_monotonic, last_refresh_day_key
+        should_refresh = False
+        if refresh_each_day and current_day_key != last_refresh_day_key:
+            should_refresh = True
+        if refresh_seconds > 0 and (time.monotonic() - last_refresh_monotonic) >= refresh_seconds:
+            should_refresh = True
+        if not should_refresh:
+            return
+        if not HN_SEED_SCRIPT.exists():
+            print("[daemon] HN refresh skipped: seed script missing.", file=sys.stderr, flush=True)
+            return
+        cmd = [
+            sys.executable,
+            str(HN_SEED_SCRIPT),
+            "--db",
+            config.db_path,
+            "--stories",
+            str(refresh_stories),
+            "--comments",
+            str(refresh_comments),
+            "--max-chars",
+            str(refresh_max_chars),
+        ]
+        if refresh_topic_regex:
+            cmd += ["--topic-regex", refresh_topic_regex]
+        if refresh_rewrite_mode and refresh_rewrite_mode != "none":
+            cmd += ["--rewrite-mode", refresh_rewrite_mode]
+        print(
+            f"[daemon] HN refresh: stories={refresh_stories} comments={refresh_comments} "
+            f"topic={refresh_topic_regex or 'any'} rewrite={refresh_rewrite_mode}",
+            flush=True,
+        )
+        subprocess.run(cmd, check=False)
+        last_refresh_monotonic = time.monotonic()
+        last_refresh_day_key = current_day_key
+
+    def maybe_refresh_wiki(current_day_key: str) -> None:
+        nonlocal last_wiki_refresh_monotonic, last_wiki_refresh_day_key
+        should_refresh = False
+        if wiki_refresh_each_day and current_day_key != last_wiki_refresh_day_key:
+            should_refresh = True
+        if wiki_refresh_seconds > 0 and (time.monotonic() - last_wiki_refresh_monotonic) >= wiki_refresh_seconds:
+            should_refresh = True
+        if not should_refresh:
+            return
+        if not WIKI_TALK_SEED_SCRIPT.exists():
+            print("[daemon] Wikipedia Talk refresh skipped: seed script missing.", file=sys.stderr, flush=True)
+            return
+        cmd = [
+            sys.executable,
+            str(WIKI_TALK_SEED_SCRIPT),
+            "--db",
+            config.db_path,
+            "--pages",
+            str(wiki_refresh_pages),
+            "--lang",
+            wiki_refresh_lang,
+            "--max-chars",
+            str(wiki_refresh_max_chars),
+            "--throttle-ms",
+            str(wiki_refresh_throttle_ms),
+        ]
+        print(
+            f"[daemon] Wikipedia Talk refresh: pages={wiki_refresh_pages} lang={wiki_refresh_lang}",
+            flush=True,
+        )
+        subprocess.run(cmd, check=False)
+        last_wiki_refresh_monotonic = time.monotonic()
+        last_wiki_refresh_day_key = current_day_key
 
     while True:
         tick_id += 1
@@ -228,6 +320,9 @@ def run_daemon_loop(config: CommunityConfig):
             print(f"[daemon] tick failed: {error_type}: {error_message}", file=sys.stderr, flush=True)
 
         tick_elapsed_s = max(0.0, time.monotonic() - tick_start)
+        day_key = service._day_key()
+        maybe_refresh_hn(day_key)
+        maybe_refresh_wiki(day_key)
         _log_telemetry(
             service=service,
             tick_id=tick_id,

@@ -1189,15 +1189,24 @@ class CommunityService:
             llm_invoke=lambda prompt: self._critic_llm_invoke(provider, model, prompt),
         )
         quality_score = float(critic_eval["final_score"])
+        strictness = max(0.5, float(self.config.critic_strictness))
+        # Higher strictness lowers effective quality score (harder to pass).
+        quality_score = max(0.0, min(1.0, quality_score / strictness))
         persona_score = self._persona_consistency(draft, persona)
         emotion_score = self._emotion_alignment(draft, tone, emotion_vector)
-        combined = round((0.55 * quality_score) + (0.25 * persona_score) + (0.20 * emotion_score), 3)
+        diversity_penalty, max_sim = self._diversity_penalty(draft)
+        combined = round(
+            (0.55 * quality_score) + (0.25 * persona_score) + (0.20 * emotion_score) - diversity_penalty,
+            3,
+        )
         return {
             "text": draft,
             "quality_score": quality_score,
             "persona_score": persona_score,
             "emotion_score": emotion_score,
             "combined_score": combined,
+            "diversity_penalty": diversity_penalty,
+            "max_similarity": max_sim,
             "critic_feedback": critic_eval.get("feedback", ""),
         }
 
@@ -1645,6 +1654,43 @@ class CommunityService:
         if emotion_vector.get("Fatigue", 0) > 0.6 and len(text) < 180:
             score += 0.1
         return round(min(1.0, score), 3)
+
+    def _diversity_penalty(self, text: str) -> tuple[float, float]:
+        window = int(self.config.diversity_window)
+        if window <= 0:
+            return 0.0, 0.0
+        rows = self.db.fetchall(
+            """
+            SELECT body
+            FROM content
+            WHERE author_type = 'ai'
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (window,),
+        )
+        if not rows:
+            return 0.0, 0.0
+        text_tokens = self._tokens(text)
+        if not text_tokens:
+            return 0.0, 0.0
+        max_sim = 0.0
+        for row in rows:
+            other_tokens = self._tokens(row["body"] or "")
+            if not other_tokens:
+                continue
+            union = len(text_tokens | other_tokens)
+            if union == 0:
+                continue
+            sim = len(text_tokens & other_tokens) / union
+            if sim > max_sim:
+                max_sim = sim
+        min_sim = float(self.config.diversity_min_sim)
+        if max_sim <= min_sim:
+            return 0.0, round(max_sim, 3)
+        weight = float(self.config.diversity_penalty_weight)
+        penalty = weight * (max_sim - min_sim) / max(1e-6, (1.0 - min_sim))
+        return round(min(weight, penalty), 3), round(max_sim, 3)
 
     def _evolve_persona(self, persona: str, context_lines: list[str]) -> str:
         tokens = Counter()
